@@ -3,9 +3,6 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <!-- ERP erişim bekçisi -->
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="https://mycosmosshop.github.io/erp-portal/erp-guard.js"></script>
     <title>Kalibrasyon Takip Sistemi</title>
     
     <!-- PWA -->
@@ -13,8 +10,36 @@
     <meta name="theme-color" content="#ffffff">
     <link rel="apple-touch-icon" href="icon-192.svg">
 
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+    <!-- ERP canlı senkron (Supabase): instruments / calibrationRecords / settings -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="kalibrasyon-sync.js"></script>
+
+    <script src="https://cdn.tailwindcss.com">
+
+</script>
+<script>
+// --- Global dateKeyOf (fallback to avoid UTC shift and ReferenceError) ---
+(function(){
+  if (typeof window !== 'undefined' && !window.dateKeyOf) {
+    window.dateKeyOf = function(d) {
+      if (!d || Object.prototype.toString.call(d) !== '[object Date]' || isNaN(d.getTime())) return '';
+      var y = d.getFullYear();
+      var m = String(d.getMonth() + 1).padStart(2, '0');
+      var day = String(d.getDate(), 10).padStart(2, '0');
+      return y + '-' + m + '-' + day;
+    };
+  }
+  if (typeof window !== 'undefined') {
+    window.__dateKeyOf__ = window.dateKeyOf;
+  }
+  if (typeof dateKeyOf === 'undefined') {
+    try { /* fall back to global */ eval('var dateKeyOf = window.__dateKeyOf__;'); } catch(e) {}
+  }
+})();
+// --- /Global dateKeyOf ---
+</script>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -37,6 +62,15 @@
 <link rel="stylesheet" href="/index.css">
 </head>
 <body class="bg-slate-100 dark:bg-slate-900">
+  <!-- App Title Bar -->
+  <div id="app-title-bar" class="sticky top-0 z-40 w-full border-b border-slate-200/70 dark:border-slate-700/70 bg-white/80 dark:bg-slate-900/70 backdrop-blur supports-[backdrop-filter]:bg-white/60">
+    <div class="max-w-7xl mx-auto px-4 py-2">
+      <h1 class="text-center text-slate-800 dark:text-slate-100 text-xl md:text-2xl font-semibold tracking-wide">
+        Caltrack Kalibrasyon Takip
+      </h1>
+    </div>
+  </div>
+
     <div id="root"></div>
     <script>
       (async () => {
@@ -105,69 +139,6 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import ReactDOM from 'react-dom/client';
 import { GoogleGenAI } from "@google/genai";
 
-
-// --- Safe date helpers (prevent 1-day shift by using UTC-only keys) ---
-window.dateKeyOf = function inputToKey(input) {
-  function pad(n){return n<10?'0'+n:String(n);}
-  if (!input) return '';
-  if (typeof input === 'string') {
-    const s = input.trim();
-    // dd.mm.yyyy or dd/mm/yyyy
-    let m = s.match(/^([0-3]?\d)[\.\/\-]([0-1]?\d)[\.\/\-](\d{4})$/);
-    if (m) {
-      const d = parseInt(m[1],10), mo = parseInt(m[2],10), y = parseInt(m[3],10);
-      return y + '-' + pad(mo) + '-' + pad(d);
-    }
-    // yyyy-mm-dd
-    m = s.match(/^(\d{4})-([0-1]?\d)-([0-3]?\d)$/);
-    if (m) {
-      const y = parseInt(m[1],10), mo = parseInt(m[2],10), d = parseInt(m[3],10);
-      return y + '-' + pad(mo) + '-' + pad(d);
-    }
-    // Fallback to Date but keep UTC date only
-    const dt = new Date(s);
-    return dt.getUTCFullYear() + '-' + pad(dt.getUTCMonth()+1) + '-' + pad(dt.getUTCDate());
-  }
-  if (input instanceof Date) {
-    return input.getUTCFullYear() + '-' + pad(input.getUTCMonth()+1) + '-' + pad(input.getUTCDate());
-  }
-  return String(input);
-};
-
-// --- Robust date-to-YYYY-MM-DD helper that IGNORES time zone/time part completely ---
-window.ymd = function(input) {
-  function pad(n){return n<10?'0'+n:String(n);}
-  if (!input) return '';
-  // If string, prefer pure parsing of the date-part only
-  if (typeof input === 'string') {
-    const s = input.trim();
-    // Handle ISO-like: "YYYY-MM-DD" OR "YYYY-MM-DDTHH:MM:SS(.sss)Z" -> always take the first 10 chars
-    const mIso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
-    if (mIso) return mIso[1] + '-' + mIso[2] + '-' + mIso[3];
-    // Handle "DD.MM.YYYY" or "DD/MM/YYYY" or "DD-MM-YYYY"
-    const mDMY = s.match(/^([0-3]?\d)[\.\/\-]([0-1]?\d)[\.\/\-](\d{4})$/);
-    if (mDMY) {
-      const d = ('0' + parseInt(mDMY[1],10)).slice(-2);
-      const mo = ('0' + parseInt(mDMY[2],10)).slice(-2);
-      const y = mDMY[3];
-      return y + '-' + mo + '-' + d;
-    }
-    // Fallback: build Date and read local parts
-    const dt = new Date(s);
-    return dt.getFullYear() + '-' + pad(dt.getMonth()+1) + '-' + pad(dt.getDate());
-  }
-  // If Date instance
-  if (input instanceof Date) {
-    return input.getFullYear() + '-' + pad(input.getMonth()+1) + '-' + pad(input.getDate());
-  }
-  // Anything else
-  try {
-    const dt = new Date(input);
-    return dt.getFullYear() + '-' + pad(dt.getMonth()+1) + '-' + pad(dt.getDate());
-  } catch(_e) {
-    return '';
-  }
-};
 const e = React.createElement;
 
 let ai = null;
@@ -762,7 +733,10 @@ const App = () => {
     }, []);
 
     const instrumentsWithDetails = useMemo(() => {
-        return instruments.map(instrument => {
+        // ensure relevant records cover both calibration & verification
+const __grouped = new Map();
+(calibrationRecords || []).forEach(r => { if (!r || !r.instrumentId) return; const a = __grouped.get(r.instrumentId) || []; a.push(r); __grouped.set(r.instrumentId, a); });
+return instruments.map(instrument => {
             const status = getInstrumentStatus(instrument, settings.reminderDays);
             const nextCalibrationDate = instrument.lastCalibrationDate
                 ? calculateNextCalibrationDate(instrument.lastCalibrationDate, instrument.calibrationInterval)
@@ -770,7 +744,7 @@ const App = () => {
             return {
                 ...instrument,
                 status,
-                nextCalibrationDate: nextCalibrationDate ?(window.localDateKeyOf?window.ymd( nextCalibrationDate): (window.ymd ? window.ymd(nextCalibrationDate) : nextCalibrationDate.toISOString().split('T')[0])) : 'N/A',
+                nextCalibrationDate: nextCalibrationDate ? dateKeyOf(nextCalibrationDate) : 'N/A',
             };
         });
     }, [instruments, getInstrumentStatus, settings.reminderDays]);
@@ -789,7 +763,7 @@ const App = () => {
             return {
                 ...instrument,
                 status,
-                nextCalibrationDate: nextCalibrationDate ?(window.localDateKeyOf?window.ymd( nextCalibrationDate): (window.ymd ? window.ymd(nextCalibrationDate) : nextCalibrationDate.toISOString().split('T')[0])) : 'N/A',
+                nextCalibrationDate: nextCalibrationDate ? dateKeyOf(nextCalibrationDate) : 'N/A',
             };
         });
 
@@ -941,29 +915,14 @@ const App = () => {
         if (editingRecord) {
             updatedRecords = calibrationRecords.map(r => (r.id === recordWithResult.id ? recordWithResult : r));
         } else {
-            const newRecord = {
-                    referenceInstrument: (rowData.referenceInstrumentName && rowData.referenceInstrumentSerial) ? (String(rowData.referenceInstrumentName) + ' (' + String(rowData.referenceInstrumentSerial) + ')') : (rowData.referenceInstrumentName ? String(rowData.referenceInstrumentName) : ''),
-                    referenceInstrumentSerial: rowData.referenceInstrumentSerial ? String(rowData.referenceInstrumentSerial) : '',
- ...recordWithResult, id: Date.now().toString() };
+            const newRecord = { ...recordWithResult, id: Date.now().toString() };
             updatedRecords = [...calibrationRecords, newRecord];
         }
         setCalibrationRecords(updatedRecords);
-        // Recompute and sync lastCalibrationDate using CALIBRATION + VERIFICATION
-        try {
-            var isRelevant = function(r) {
-                var t = r && (r.recordType || r.type);
-                return t === RecordType.CALIBRATION || t === RecordType.VERIFICATION || t === 'Kalibrasyon' || t === 'Doğrulama';
-            };
-            var rel = (updatedRecords || []).filter(function(r){ return r && r.instrumentId === record.instrumentId && isRelevant(r); })
-                .sort(function(a,b){ return new Date(b.date).getTime() - new Date(a.date).getTime(); });
-            var latest = rel.length ? rel[0].date : '';
-            setInstruments(function(prev){ return prev.map(function(inst){ return inst.id === record.instrumentId ? Object.assign({}, inst, { lastCalibrationDate: latest }) : inst; }); });
-        } catch (e) { console.warn('recompute lastCalibrationDate failed', e); }
-            
 
         if (record.recordType === RecordType.CALIBRATION) {
             setInstruments(prevInstruments => {
-                const recordsForThisInstrument = updatedRecords.filter(r => r.instrumentId === record.instrumentId && (r.recordType === RecordType.CALIBRATION || r.recordType === RecordType.VERIFICATION || r.recordType === 'Kalibrasyon' || r.recordType === 'Doğrulama' || r.type === RecordType.CALIBRATION || r.type === RecordType.VERIFICATION));
+                const recordsForThisInstrument = updatedRecords.filter(r => r.instrumentId === record.instrumentId && r.recordType === RecordType.CALIBRATION);
                 const latestRecord = recordsForThisInstrument.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
                 
                 return prevInstruments.map(inst => {
@@ -978,7 +937,29 @@ const App = () => {
         setCalibrationFormOpen(false);
         setEditingRecord(null);
         setInstrumentIdForNewRecord(null);
-    };
+    
+    // --- Sync verification date to instrument.lastCalibrationDate if it is newer ---
+    try {
+        const rec = record || {};
+        if ((rec.recordType === RecordType.VERIFICATION) || (rec.type === RecordType.VERIFICATION) || (rec.recordType === 'Doğrulama') || (rec.type === 'Doğrulama')) {
+            if (rec.date) {
+                setInstruments(prev => prev.map(inst => {
+                    if (!inst || inst.id !== rec.instrumentId) return inst;
+                    const prevDate = inst.lastCalibrationDate ? new Date(inst.lastCalibrationDate) : null;
+                    const newDate = new Date(rec.date);
+                    if (!prevDate || (newDate.getTime() > prevDate.getTime())) {
+                        const keyer = (typeof window !== 'undefined' && typeof window.dateKeyOf === 'function') ? window.dateKeyOf : (d => d.toISOString().slice(0,10));
+                        return { ...inst, lastCalibrationDate: keyer(newDate) };
+                    }
+                    return inst;
+                }));
+            }
+        }
+    } catch (e) {
+        console.warn('Verification sync failed', e);
+    }
+    
+};
 
     const handleDeleteRecord = (id) => {
         setItemToDelete({ type: 'record', ids: [id] });
@@ -1055,7 +1036,7 @@ const App = () => {
                 return prevInstruments.map(inst => {
                     if (affectedInstrumentIds.has(inst.id)) {
                         const latestRecord = newRecords
-                            .filter(r => r.instrumentId === inst.id && (r.recordType === RecordType.CALIBRATION || r.recordType === RecordType.VERIFICATION || r.recordType === 'Kalibrasyon' || r.recordType === 'Doğrulama' || r.type === RecordType.CALIBRATION || r.type === RecordType.VERIFICATION))
+                            .filter(r => r.instrumentId === inst.id && r.recordType === RecordType.CALIBRATION)
                             .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
                         return { ...inst, lastCalibrationDate: latestRecord ? latestRecord.date : '' };
                     }
@@ -1099,7 +1080,7 @@ const App = () => {
                     return prevInstruments.map(inst => {
                         if (affectedInstrumentIds.has(inst.id)) {
                             const latestRecord = newRecords
-                                .filter(r => r.instrumentId === inst.id && (r.recordType === RecordType.CALIBRATION || r.recordType === RecordType.VERIFICATION || r.recordType === 'Kalibrasyon' || r.recordType === 'Doğrulama' || r.type === RecordType.CALIBRATION || r.type === RecordType.VERIFICATION))
+                                .filter(r => r.instrumentId === inst.id && r.recordType === RecordType.CALIBRATION)
                                 .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
                             
                             return { ...inst, lastCalibrationDate: latestRecord ? latestRecord.date : '' };
@@ -1127,48 +1108,31 @@ const App = () => {
     const handleUnifiedImport = (data) => {
         const parseDateToISO = (dateInput) => {
             if (!dateInput || (typeof dateInput === 'string' && dateInput.toLowerCase() === 'gg.aa.yyyy')) return null;
-            const pad = (n) => n < 10 ? '0' + n : String(n);
             if (dateInput instanceof Date) {
-                if (isNaN(dateInput.getTime())) return null;
-                return dateInput.getFullYear() + '-' + pad(dateInput.getMonth() + 1) + '-' + pad(dateInput.getDate());
+                return !isNaN(dateInput.getTime()) ? dateKeyOf(dateInput) : null;
             }
             if (typeof dateInput === 'string') {
                 const parts = dateInput.match(/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})$/);
+                let date;
                 if (parts) {
-                    return parts[3] + '-' + pad(parseInt(parts[2], 10)) + '-' + pad(parseInt(parts[1], 10));
+                    date = new Date(parseInt(parts[3], 10), parseInt(parts[2], 10) - 1, parseInt(parts[1], 10));
+                } else {
+                    date = new Date(dateInput);
                 }
-                const isoMatch = dateInput.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
-                if (isoMatch) {
-                    return isoMatch[1] + '-' + pad(parseInt(isoMatch[2], 10)) + '-' + pad(parseInt(isoMatch[3], 10));
-                }
-                const date = new Date(dateInput);
-                if (!isNaN(date.getTime())) {
-                    return date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate());
-                }
-                return null;
+                return !isNaN(date.getTime()) ? dateKeyOf(date) : null;
             }
             if (typeof dateInput === 'number') {
                 const d = XLSX.SSF.parse_date_code(dateInput);
                 if (d) {
-                    return d.y + '-' + pad(d.m) + '-' + pad(d.d);
+                    const date = new Date(d.y, d.m - 1, d.d, d.H, d.M, d.S);
+                    return !isNaN(date.getTime()) ? dateKeyOf(date) : null;
                 }
             }
             return null;
         };
 
-        // Auto-detect header row (skip metadata rows in "Kalibrasyon Planı" format)
-        let headerRowIndex = 0;
-        const knownHeaderKeywords = ['SERİ NUMARASI', 'KALİBRASYON KODU', 'Seri No', 'Cihaz ID', 'ÖLÇME ALETİ'];
-        for (let i = 0; i < Math.min(data.length, 15); i++) {
-            const rowStr = data[i].map(h => String(h).trim().replace(/[\r\n]+/g, ' ')).join('|');
-            if (knownHeaderKeywords.some(kw => rowStr.includes(kw))) {
-                headerRowIndex = i;
-                break;
-            }
-        }
-        const headerRow = data[headerRowIndex].map(h => String(h).trim().replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' '));
-        const rows = data.slice(headerRowIndex + 1).filter(row => row.some(cell => cell !== '' && cell !== null && cell !== undefined));
-        const isKalibrasyonPlaniFormat = headerRow.some(h => h.includes('SERİ NUMARASI') || h.includes('KALİBRASYON KODU'));
+        const headerRow = data[0].map(h => String(h).trim());
+        const rows = data.slice(1);
     
         const headerMap = {
             'Cihaz ID': 'id', 'Cihaz Adı': 'name', 'Seri No': 'serialNumber', 'Model': 'model',
@@ -1182,27 +1146,7 @@ const App = () => {
             'Rapor No': 'reportNumber', 'Rapor Numarası': 'reportNumber',
             'Sapma': 'deviation', 'Belirsizlik': 'uncertainty',
             'Notlar': 'notes', 'Zimmetli Personel': 'assignedPersonnel',
-            'Referans Cihaz Seri No': 'referenceInstrumentSerial',
-            'Referans Cihaz': 'referenceInstrumentName', 'Referans Cihaz Adı': 'referenceInstrumentName', 'Reference Instrument': 'referenceInstrumentName', 'Reference Device': 'referenceInstrumentName',
-            // Kalibrasyon Planı format mappings
-            'MAKİNA-BÖLÜM': '_makinaBolum',
-            'İŞLEV': '_islev',
-            'KALİBRASYON FİRMASI': 'calibratingCompany',
-            'ÖLÇME ALETİ MARKASI': '_brand',
-            'TİPİ': 'model',
-            'SERİ NUMARASI': 'serialNumber',
-            'KALİBRASYON KODU': 'id',
-            'ÖLÇME ARALIĞI': 'measurementRange',
-            'KABUL EDİLEN MAX. SAPMA DEĞERİ (+/-)': '_permissibleDeviationText',
-            'ADET': '_quantity',
-            'KALİBRASYON PERİYODU': '_calibrationPeriod',
-            'ÖNCEKİ KALİBRASYON TARİHİ': 'lastCalibrationDate',
-            'SONRAKİ KALİBRASYON TARİHİ': '_nextCalibrationDate',
-            'ELDE EDİLEN SAPMA DEĞERİ (+/-)': 'deviation',
-            'ÖLÇÜM BELİRSİZLİĞİ (U)': 'uncertainty',
-            'TOPLAM SAPMA': '_totalDeviation',
-            'SONUÇ': 'result',
-            'DOKÜMAN NO': '_docNo'
+            'Referans Cihaz Seri No': 'referenceInstrumentSerial'
         };
     
         const newRecords = [];
@@ -1217,118 +1161,43 @@ const App = () => {
                 const key = headerMap[header];
                 if (key) {
                     let value = row[index];
-                     if (key === 'date' || key === 'lastCalibrationDate' || key === '_nextCalibrationDate') {
+                     if (key === 'date' || key === 'lastCalibrationDate') {
                         value = parseDateToISO(value);
                     }
                     rowData[key] = value;
                 }
             });
-
-            // --- Kalibrasyon Planı format post-processing ---
-            if (isKalibrasyonPlaniFormat) {
-                // MAKİNA-BÖLÜM → name + department
-                if (rowData._makinaBolum) {
-                    const parts = String(rowData._makinaBolum).split(/\s*-\s*/);
-                    if (parts.length >= 2) {
-                        rowData.name = parts[0].trim();
-                        rowData.department = parts.slice(1).join(' - ').trim();
-                    } else {
-                        rowData.name = String(rowData._makinaBolum).trim();
-                    }
-                }
-                // İŞLEV → purpose (stored for round-trip)
-                if (rowData._islev) rowData.purpose = String(rowData._islev).trim();
-                // ÖLÇME ALETİ MARKASI → brand (stored for round-trip)
-                if (rowData._brand) rowData.brand = String(rowData._brand).trim();
-                // ADET → quantity (stored for round-trip)
-                if (rowData._quantity) rowData.quantity = rowData._quantity;
-                // KALİBRASYON PERİYODU → calibrationInterval (months)
-                if (rowData._calibrationPeriod) {
-                    const periodText = String(rowData._calibrationPeriod);
-                    const yearMatch = periodText.match(/(\d+)\s*YIL/i);
-                    if (yearMatch) {
-                        rowData.calibrationInterval = parseInt(yearMatch[1]) * 12;
-                    } else {
-                        const monthMatch = periodText.match(/(\d+)\s*AY/i);
-                        if (monthMatch) rowData.calibrationInterval = parseInt(monthMatch[1]);
-                    }
-                }
-                // KABUL EDİLEN MAX. SAPMA DEĞERİ → permissibleDeviation (numeric) + unit
-                if (rowData._permissibleDeviationText) {
-                    const devText = String(rowData._permissibleDeviationText);
-                    rowData.permissibleDeviationOriginal = devText;
-                    let s = devText.replace(/[±]/g, '').replace(/\+\s*\/\s*-/g, '').trim();
-                    const numMatch = s.match(/([0-9]+(?:[,\.][0-9]+)?)\s*(.*)/);
-                    if (numMatch) {
-                        rowData.permissibleDeviation = parseFloat(numMatch[1].replace(',', '.'));
-                        if (numMatch[2]) rowData.unit = numMatch[2].trim();
-                    }
-                }
-                // Set date for record creation from lastCalibrationDate
-                if (!rowData.date && rowData.lastCalibrationDate) {
-                    rowData.date = rowData.lastCalibrationDate;
-                }
-                // Handle deviation: only skip record if deviation is truly missing (not 0)
-                const hasDeviation = rowData.deviation !== '' && rowData.deviation !== undefined && rowData.deviation !== null && !(typeof rowData.deviation === 'string' && rowData.deviation.trim() === '');
-                if (!hasDeviation) {
-                    delete rowData.date; // No record if no deviation data at all
-                }
-                // Clean up temporary keys
-                delete rowData._makinaBolum; delete rowData._islev; delete rowData._brand;
-                delete rowData._quantity; delete rowData._calibrationPeriod;
-                delete rowData._permissibleDeviationText; delete rowData._nextCalibrationDate;
-                delete rowData._totalDeviation; delete rowData._docNo;
-            }
     
-            
-            // Reference Instrument combined cell: "Name (SN: 111...)" or arbitrary free text
-            if (rowData.referenceInstrumentName) {
-                try {
-                    const combined = String(rowData.referenceInstrumentName);
-                    const m = combined.match(/\(\s*SN\s*:\s*([^\)]+)\)/i);
-                    if (m && !rowData.referenceInstrumentSerial) {
-                        rowData.referenceInstrumentSerial = m[1].trim();
-                        rowData.referenceInstrumentName = combined.replace(/\(\s*SN\s*:[^\)]+\)/i, '').trim();
-                    }
-                } catch (e) {}
-            }
-if (!rowData.serialNumber) {
+            if (!rowData.serialNumber) {
                 console.warn(`Satır ${rowIndex + 2} atlandı: 'Seri No' bilgisi eksik.`);
                 return;
             }
 
             const serial = String(rowData.serialNumber);
-            // Treat placeholder serials as unique (don't match to existing devices)
-            const placeholderSerials = new Set(['N/A', 'n/a', 'NA', 'na', '-', '', 'YOK', 'yok']);
-            const isPlaceholderSerial = placeholderSerials.has(serial.trim());
             let instrumentToProcess;
-            let existingInstrument = isPlaceholderSerial ? undefined : existingInstrumentsBySerial.get(serial);
+            let existingInstrument = existingInstrumentsBySerial.get(serial);
             
             const { id: providedId, ...restOfRowData } = rowData;
 
-            // Separate record-only fields from instrument fields
-            const recordOnlyKeys = new Set(['date', 'recordType', 'result', 'technician', 'calibratingCompany', 'reportNumber', 'deviation', 'uncertainty', 'notes', 'assignedPersonnel', 'referenceInstrumentSerial', 'referenceInstrumentName', 'referenceInstrumentId', '_totalDeviation']);
             const instrumentDataFromRow = Object.fromEntries(
-                Object.entries(restOfRowData).filter(([k, v]) => !recordOnlyKeys.has(k) && v !== undefined && v !== null && String(v).trim() !== '')
+                Object.entries(restOfRowData).filter(([_, v]) => v !== undefined && v !== null && String(v).trim() !== '')
             );
 
             if (existingInstrument) {
                 instrumentToProcess = { ...existingInstrument, ...instrumentDataFromRow };
                 updatedInstrumentsMap.set(serial, instrumentToProcess);
             } else {
-                instrumentToProcess = isPlaceholderSerial ? undefined : newInstrumentsFromExcel.get(serial);
+                instrumentToProcess = newInstrumentsFromExcel.get(serial);
                 if (!instrumentToProcess) {
-                    const uniqueSerial = isPlaceholderSerial ? `${serial}_${newInstrumentCounter}` : serial;
                     instrumentToProcess = {
-                        id: `new_${uniqueSerial}_${newInstrumentCounter++}`, // Temporary ID for linking records
+                        id: `new_${serial}_${newInstrumentCounter++}`, // Temporary ID for linking records
                         providedId: providedId ? String(providedId) : null,
                         name: '', serialNumber: serial, model: '', location: '', department: '',
                         calibrationInterval: 12, permissibleDeviation: 0, unit: '', procedure: '',
                         lastCalibrationDate: '', measurementRange: '', resolution: '', image: null,
                         ...instrumentDataFromRow,
                     };
-                    const mapKey = isPlaceholderSerial ? instrumentToProcess.id : serial;
-                    newInstrumentsFromExcel.set(mapKey, instrumentToProcess);
+                    newInstrumentsFromExcel.set(serial, instrumentToProcess);
                 }
             }
 
@@ -1341,21 +1210,18 @@ if (!rowData.serialNumber) {
                 const newRecord = {
                     id: `${Date.now()}-${rowIndex}`,
                     instrumentId: instrumentToProcess.id, // Use temp ID for now
-                    date: (window.dateKeyOf ? window.ymd(rowData.date) : rowData.date),
+                    date: rowData.date,
                     technician: rowData.technician || '',
                     calibratingCompany: rowData.calibratingCompany || '',
                     reportNumber: String(rowData.reportNumber || ''),
                     deviation: deviation,
                     uncertainty: uncertainty,
                     notes: rowData.notes || '',
-                    recordType: ((rowData.recordType||'').toString().toLowerCase().includes('doğru') || (rowData.recordType||'').toString().toLowerCase().includes('dogru') || (rowData.recordType||'').toString().toLowerCase().includes('verify') || (rowData.recordType||'').toString().toLowerCase().includes('valid')) ? RecordType.VERIFICATION : RecordType.CALIBRATION,
+                    recordType: Object.values(RecordType).includes(rowData.recordType) ? rowData.recordType : RecordType.CALIBRATION,
                     result: result,
                     assignedPersonnel: rowData.assignedPersonnel || '',
                     reportFile: null,
-                    referenceInstrument: (rowData.referenceInstrumentName && rowData.referenceInstrumentSerial) ? (String(rowData.referenceInstrumentName) + ' (SN: ' + String(rowData.referenceInstrumentSerial) + ')') : (rowData.referenceInstrumentName ? String(rowData.referenceInstrumentName) : ''),
-                    referenceInstrumentName: rowData.referenceInstrumentName ? String(rowData.referenceInstrumentName) : '',
-                    referenceInstrumentSerial: rowData.referenceInstrumentSerial ? String(rowData.referenceInstrumentSerial) : '',
-referenceInstrumentId: '',
+                    referenceInstrumentId: '',
                 };
                 
                 if (rowData.referenceInstrumentSerial) {
@@ -1405,23 +1271,13 @@ referenceInstrumentId: '',
         
         finalInstruments.push(...newInstrumentsWithFinalIds);
         const allRecords = [...calibrationRecords, ...newRecords];
-        // Ensure lastCalibrationDate reflects max(CALIBRATION, VERIFICATION)
-        finalInstruments = finalInstruments.map(function(inst){
-            var rel = allRecords.filter(function(r){ return r.instrumentId === inst.id && (
-                r.recordType === RecordType.CALIBRATION || r.recordType === RecordType.VERIFICATION ||
-                r.recordType === 'Kalibrasyon' || r.recordType === 'Doğrulama' ||
-                r.type === RecordType.CALIBRATION || r.type === RecordType.VERIFICATION );}).sort(function(a,b){ return new Date(b.date).getTime() - new Date(a.date).getTime(); });
-            if (rel.length > 0) { inst = Object.assign({}, inst, { lastCalibrationDate: rel[0].date }); }
-            return inst;
-        });
-
         
         const affectedInstrumentSerials = new Set([...updatedInstrumentsMap.keys(), ...newInstrumentsFromExcel.keys()]);
 
         finalInstruments = finalInstruments.map(inst => {
             if (affectedInstrumentSerials.has(String(inst.serialNumber))) {
                 const latestCalibrationRecord = allRecords
-                    .filter(r => r.instrumentId === inst.id && (r.recordType === RecordType.CALIBRATION || r.recordType === RecordType.VERIFICATION || r.recordType === 'Kalibrasyon' || r.recordType === 'Doğrulama' || r.type === RecordType.CALIBRATION || r.type === RecordType.VERIFICATION))
+                    .filter(r => r.instrumentId === inst.id && r.recordType === RecordType.CALIBRATION)
                     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
                 
                 const finalDate = latestCalibrationRecord ? latestCalibrationRecord.date : inst.lastCalibrationDate;
@@ -1566,182 +1422,6 @@ referenceInstrumentId: '',
         XLSX.writeFile(wb, "Kalibrasyon_Raporu.xlsx");
         setExportOpen(false);
     };
-
-    const handleKalibrasyonPlaniExport = (instrumentsToExport) => {
-        const exportInstruments = instrumentsToExport || instrumentsWithDetails;
-        if (!exportInstruments || exportInstruments.length === 0) {
-            toastService.warning("Dışa aktarılacak cihaz bulunamadı.");
-            return;
-        }
-
-        const pad = (n) => n < 10 ? '0' + n : String(n);
-        const fmtDate = (d) => {
-            if (!d) return '';
-            if (d instanceof Date) return pad(d.getDate()) + '.' + pad(d.getMonth()+1) + '.' + d.getFullYear();
-            const m = String(d).match(/^(\d{4})-(\d{2})-(\d{2})/);
-            if (m) return m[3] + '.' + m[2] + '.' + m[1];
-            return String(d);
-        };
-
-        // --- Style definitions ---
-        const thinBorder = { top: {style:'thin'}, bottom: {style:'thin'}, left: {style:'thin'}, right: {style:'thin'} };
-        const metaTitleStyle = { font: {bold:true, sz:11}, alignment: {horizontal:'left', vertical:'center'} };
-        const metaLabelStyle = { font: {bold:true, sz:9}, alignment: {horizontal:'right', vertical:'center'} };
-        const metaValueStyle = { font: {sz:9}, alignment: {horizontal:'left', vertical:'center'} };
-        const headerStyle = { font: {bold:true, sz:9, color:{rgb:'FFFFFF'}}, fill: {fgColor:{rgb:'4472C4'}}, alignment: {horizontal:'center', vertical:'center', wrapText:true}, border: thinBorder };
-        const dataStyle = { font: {sz:9}, alignment: {horizontal:'center', vertical:'center'}, border: thinBorder };
-        const dataLeftStyle = { font: {sz:9}, alignment: {horizontal:'left', vertical:'center', wrapText:true}, border: thinBorder };
-        const okStyle = { font: {sz:9, bold:true, color:{rgb:'006100'}}, fill: {fgColor:{rgb:'C6EFCE'}}, alignment: {horizontal:'center', vertical:'center'}, border: thinBorder };
-        const redStyle = { font: {sz:9, bold:true, color:{rgb:'9C0006'}}, fill: {fgColor:{rgb:'FFC7CE'}}, alignment: {horizontal:'center', vertical:'center'}, border: thinBorder };
-
-        // Metadata rows
-        const metaRows = [
-            ["KALİTE YÖNETİM SİSTEMİ DOKÜMANTASYONU","","","","","","","","","","","","","","","DOKÜMAN NO"," PL12",""],
-            ["","","","","","","","","","","","","","","","YAYIN TARİHİ","16.12.2006",""],
-            ["","","","","","","","","","","","","","","","REV. NO/TARİH","10/12.12.2019",""],
-            ["","","","","","","","","","","","","","","","SAYFA"," 1 / 1",""],
-        ];
-
-        // Header row
-        const headers = [
-            "MAKİNA-BÖLÜM", "İŞLEV", "KALİBRASYON FİRMASI", "ÖLÇME ALETİ MARKASI",
-            "TİPİ", "SERİ NUMARASI", "KALİBRASYON KODU", "ÖLÇME \nARALIĞI",
-            "KABUL EDİLEN MAX. SAPMA DEĞERİ\n(+/-)", "ADET", "KALİBRASYON PERİYODU",
-            "ÖNCEKİ KALİBRASYON TARİHİ", "SONRAKİ KALİBRASYON TARİHİ",
-            "ELDE EDİLEN SAPMA DEĞERİ \n(+/-)", "ÖLÇÜM BELİRSİZLİĞİ (U)",
-            "TOPLAM SAPMA", "SONUÇ", ""
-        ];
-
-        // Build data rows
-        const dataRows = exportInstruments.map(inst => {
-            const latestRecord = calibrationRecords
-                .filter(r => r.instrumentId === inst.id)
-                .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
-
-            const makinaBolum = inst.department ? `${inst.name} - ${inst.department}` : inst.name;
-            const interval = parseInt(inst.calibrationInterval) || 12;
-            let periodText = interval % 12 === 0 ? `${interval / 12} YIL` : `${interval} AY`;
-            const nextDate = calculateNextCalibrationDate(inst.lastCalibrationDate, inst.calibrationInterval);
-            const deviation = latestRecord ? Number(latestRecord.deviation) || 0 : '';
-            const uncertainty = latestRecord ? Number(latestRecord.uncertainty) || 0 : '';
-            const totalDeviation = (deviation !== '' && uncertainty !== '') ? Math.abs(deviation) + uncertainty : '';
-
-            let resultText = '';
-            if (latestRecord) {
-                if (latestRecord.result === 'Uygun' || latestRecord.result === CalibrationResult.COMPLIANT) resultText = 'OK';
-                else if (latestRecord.result === 'Sınırda Uygun' || latestRecord.result === CalibrationResult.MARGINAL) resultText = 'OK';
-                else if (latestRecord.result === 'Uygun Değil' || latestRecord.result === CalibrationResult.NON_COMPLIANT) resultText = 'RED';
-                else resultText = latestRecord.result || '';
-            }
-
-            const company = latestRecord ? (latestRecord.calibratingCompany || '') : '';
-            const permDevText = inst.permissibleDeviationOriginal || (inst.permissibleDeviation ? `± ${String(inst.permissibleDeviation).replace('.', ',')} ${inst.unit || ''}`.trim() : '');
-
-            return [
-                makinaBolum,
-                inst.purpose || '',
-                company,
-                inst.brand || '',
-                inst.model || '',
-                inst.serialNumber || '',
-                inst.id || '',
-                inst.measurementRange || '',
-                permDevText,
-                inst.quantity || 1,
-                periodText,
-                fmtDate(inst.lastCalibrationDate),
-                nextDate ? fmtDate(nextDate.toISOString()) : '',
-                deviation,
-                uncertainty,
-                totalDeviation,
-                resultText,
-                ''
-            ];
-        });
-
-        const sheetData = [...metaRows, headers, ...dataRows];
-        const wb = XLSX.utils.book_new();
-        const ws = XLSX.utils.aoa_to_sheet(sheetData);
-
-        // --- Apply styles ---
-        const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
-        const headerRowIdx = metaRows.length; // row index of column headers (4)
-        const dataStartIdx = headerRowIdx + 1; // row index of first data row (5)
-
-        // Metadata area styles with borders
-        const metaTitleStyleB = { font: {bold:true, sz:14}, alignment: {horizontal:'center', vertical:'center'}, border: thinBorder };
-        const metaEmptyMergedStyle = { border: thinBorder };
-        const metaLabelStyleB = { font: {bold:true, sz:9}, alignment: {horizontal:'center', vertical:'center'}, border: thinBorder };
-        const metaValueStyleB = { font: {sz:9}, alignment: {horizontal:'center', vertical:'center'}, border: thinBorder };
-
-        for (let R = range.s.r; R <= range.e.r; ++R) {
-            for (let C = range.s.c; C <= range.e.c; ++C) {
-                const addr = XLSX.utils.encode_cell({r:R, c:C});
-                if (!ws[addr]) ws[addr] = {v:'', t:'s'};
-
-                // Metadata rows (0-3)
-                if (R < headerRowIdx) {
-                    if (R === 0 && C <= 14) {
-                        ws[addr].s = metaTitleStyleB; // Title row with border
-                    } else if (R >= 1 && R <= 3 && C <= 14) {
-                        ws[addr].s = metaEmptyMergedStyle; // Empty merged block with border
-                    } else if (C === 15) {
-                        ws[addr].s = metaLabelStyleB; // Labels with border
-                    } else if (C >= 16 && C <= 17) {
-                        ws[addr].s = metaValueStyleB; // Values with border
-                    } else {
-                        ws[addr].s = {};
-                    }
-                }
-                // Header row
-                else if (R === headerRowIdx) {
-                    ws[addr].s = headerStyle;
-                }
-                // Data rows
-                else if (R >= dataStartIdx) {
-                    if (C === 0 || C === 7 || C === 8) {
-                        ws[addr].s = dataLeftStyle; // Wide text columns left-aligned
-                    } else if (C === 16) {
-                        // SONUÇ column: color-coded
-                        const val = ws[addr].v;
-                        ws[addr].s = (val === 'RED') ? redStyle : (val === 'OK' ? okStyle : dataStyle);
-                    } else {
-                        ws[addr].s = dataStyle;
-                    }
-                }
-            }
-        }
-
-        // Column widths
-        ws['!cols'] = [
-            { wch: 38 }, { wch: 26 }, { wch: 22 }, { wch: 20 },
-            { wch: 14 }, { wch: 18 }, { wch: 16 }, { wch: 26 },
-            { wch: 30 }, { wch: 6 },  { wch: 20 }, { wch: 22 },
-            { wch: 22 }, { wch: 26 }, { wch: 22 }, { wch: 16 },
-            { wch: 10 }, { wch: 4 },
-        ];
-
-        // Row heights
-        ws['!rows'] = [];
-        for (let i = 0; i < metaRows.length; i++) ws['!rows'][i] = { hpt: 18 };
-        ws['!rows'][headerRowIdx] = { hpt: 40 }; // Taller header row
-        for (let i = dataStartIdx; i < sheetData.length; i++) ws['!rows'][i] = { hpt: 20 };
-
-        // Cell merges matching original layout
-        ws['!merges'] = [
-            { s:{r:0,c:0}, e:{r:0,c:14} },   // Title A1:O1
-            { s:{r:0,c:16}, e:{r:0,c:17} },   // PL12 value Q1:R1
-            { s:{r:1,c:0}, e:{r:3,c:14} },    // Empty block A2:O4
-            { s:{r:1,c:16}, e:{r:1,c:17} },   // YAYIN TARİHİ value Q2:R2
-            { s:{r:2,c:16}, e:{r:2,c:17} },   // REV. NO/TARİH value Q3:R3
-            { s:{r:3,c:16}, e:{r:3,c:17} },   // SAYFA value Q4:R4
-        ];
-
-        XLSX.utils.book_append_sheet(wb, ws, "Kalibrasyon Planı");
-        XLSX.writeFile(wb, "Kalibrasyon_Plani.xlsx");
-        setExportOpen(false);
-        toastService.success("Kalibrasyon Planı formatında dışa aktarıldı.");
-    };
     
     const handleGenerateProcedure = async (instrumentData, setProcedure) => {
         if (!ai) {
@@ -1861,17 +1541,14 @@ referenceInstrumentId: '',
     const renderView = () => {
         switch (currentView) {
             case 'instrument_detail':
-                const selIndex = selectedInstrument ? instrumentsWithDetails.findIndex(x => x.id === selectedInstrument.id) : -1;
-                const handleNavPrev = () => { if (selIndex > 0) setSelectedInstrumentId(instrumentsWithDetails[selIndex - 1].id); };
-                const handleNavNext = () => { if (selIndex >= 0 && selIndex < instrumentsWithDetails.length - 1) setSelectedInstrumentId(instrumentsWithDetails[selIndex + 1].id); };
-                const handleNavJump = (id) => { if (id) setSelectedInstrumentId(id); };
                 return selectedInstrument && (
-                    e(InstrumentDetailView, { instrument: selectedInstrument,
+                    e(InstrumentDetailView, {
+                        instrument: selectedInstrument,
                         records: calibrationRecords.filter(r => r.instrumentId === selectedInstrument.id),
                         onBack: handleBackToList,
                         onEditInstrument: handleEditInstrument,
                         onDeleteInstrument: handleDeleteInstrument,
-                        onNavigatePrev: handleNavPrev, onNavigateNext: handleNavNext, onNavigateJump: handleNavJump, instrumentsAll: instrumentsWithDetails, currentIndex: selIndex, onAddRecord: handleAddRecord,
+                        onAddRecord: handleAddRecord,
                         onEditRecord: handleEditRecord,
                         onDeleteRecord: handleDeleteRecord
                     })
@@ -1945,7 +1622,8 @@ referenceInstrumentId: '',
                 isOpen: isCalendarOpen,
                 onClose: () => setCalendarOpen(false),
                 instruments: instrumentsWithDetails,
-                onNavigate: handleNavigation, onAddInstrument: handleAddInstrument}),
+                onNavigate: handleNavigation,
+                onOpenInstrument: handleShowInstrumentDetail , onDayClick: () => { handleAddInstrument(); setCalendarOpen(false); }}),
             e(InstrumentForm, {
                 isOpen: isInstrumentFormOpen,
                 onClose: () => setInstrumentFormOpen(false),
@@ -1983,7 +1661,6 @@ referenceInstrumentId: '',
                 isOpen: isExportOpen,
                 onClose: () => setExportOpen(false),
                 onExport: handleExport,
-                onKalibrasyonPlaniExport: handleKalibrasyonPlaniExport,
                 instruments: dataToExport
             }),
             e(BulkInstrumentEditModal, {
@@ -2742,7 +2419,7 @@ const InstrumentList = ({ instruments, onAddInstrument, onEditInstrument, onDele
     );
 };
 
-const InstrumentDetailView = ({ instrument, records, onBack, onEditInstrument, onDeleteInstrument, onAddRecord, onEditRecord, onDeleteRecord, onNavigatePrev, onNavigateNext, onNavigateJump, instrumentsAll, currentIndex }) => {
+const InstrumentDetailView = ({ instrument, records, onBack, onEditInstrument, onDeleteInstrument, onAddRecord, onEditRecord, onDeleteRecord }) => {
     if (!instrument) return null;
 
     const sortedRecords = useMemo(() => {
@@ -2773,14 +2450,6 @@ const InstrumentDetailView = ({ instrument, records, onBack, onEditInstrument, o
                 e("button", { onClick: onBack, className: "p-2 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700" },
                     e(ArrowLeftIcon, {})
                 ),
-            e("div", { className: "flex items-center gap-2 mb-4" },
-                e("button", { onClick: onNavigatePrev, disabled: currentIndex <= 0, className: "px-3 py-1 rounded border text-sm" + (currentIndex<=0?" opacity-50 cursor-not-allowed":" hover:bg-slate-100 dark:hover:bg-slate-700") }, "‹ Önceki"),
-                e("select", { value: instrument.id, onChange: (ev) => onNavigateJump(ev.target.value), className: "px-2 py-1 rounded border text-sm bg-white dark:bg-slate-800" },
-                    ...(instrumentsAll||[]).map(dev => e("option", { key: dev.id, value: dev.id }, (dev.name || "Cihaz") + " (" + dev.id + ")"))
-                ),
-                e("button", { onClick: onNavigateNext, disabled: (!instrumentsAll) || (currentIndex >= ((instrumentsAll?instrumentsAll.length:0) - 1)), className: "px-3 py-1 rounded border text-sm" + ((!instrumentsAll || currentIndex >= ((instrumentsAll?instrumentsAll.length:0) - 1))?" opacity-50 cursor-not-allowed":" hover:bg-slate-100 dark:hover:bg-slate-700") }, "Sonraki ›")
-            ),
-
                 e("h1", { className: "text-3xl font-bold text-slate-900 dark:text-slate-100" }, instrument.name),
                 e(StatusBadge, { status: instrument.status })
             ),
@@ -3211,7 +2880,7 @@ const CalibrationForm = ({ isOpen, onClose, onSave, instrumentId, instruments, r
     }, [instrumentId, instruments]);
     
     const defaultFormState = {
-        date:(window.localDateKeyOf?window.ymd( new Date()): new Date().toISOString().split('T')[0]),
+        date: dateKeyOf(new Date()),
         technician: '', calibratingCompany: '', reportNumber: '', deviation: 0, uncertainty: 0,
         notes: '', recordType: RecordType.CALIBRATION,
         referenceInstrumentId: '', assignedPersonnel: '', reportFile: null
@@ -3465,7 +3134,7 @@ const DataImportModal = ({ isOpen, onClose, onImport }) => {
         reader.onload = (evt) => {
             try {
                 const bstr = evt.target.result;
-                const wb = XLSX.read(bstr, { type: 'binary' });
+                const wb = XLSX.read(bstr, { type: 'binary', cellDates: true });
                 const wsname = wb.SheetNames[0];
                 const ws = wb.Sheets[wsname];
                 const data = XLSX.utils.sheet_to_json(ws, { header: 1 });
@@ -3597,7 +3266,7 @@ const SettingsModal = ({ isOpen, onClose, settings, onSave, instruments, getInst
                     serial: inst.serialNumber,
                     status: status,
                     lastCalibration: inst.lastCalibrationDate || 'N/A',
-                    nextCalibration: nextCalibrationDate ?(window.localDateKeyOf?window.ymd( nextCalibrationDate): (window.ymd ? window.ymd(nextCalibrationDate) : nextCalibrationDate.toISOString().split('T')[0])) : 'N/A',
+                    nextCalibration: nextCalibrationDate ? dateKeyOf(nextCalibrationDate) : 'N/A',
                 };
             });
     }, [instruments, getInstrumentStatus, localSettings.thresholdDays]);
@@ -3905,7 +3574,7 @@ const SettingsModal = ({ isOpen, onClose, settings, onSave, instruments, getInst
     );
 };
 
-const ExportModal = ({ isOpen, onClose, onExport, onKalibrasyonPlaniExport, instruments }) => {
+const ExportModal = ({ isOpen, onClose, onExport, instruments }) => {
     const [selectedInstrumentColumns, setSelectedInstrumentColumns] = useState(ALL_INSTRUMENT_COLUMNS.filter(c => c.visible).map(c => c.key));
     const [selectedRecordColumns, setSelectedRecordColumns] = useState(ALL_CALIBRATIONS_COLUMNS.filter(c => c.visible).map(c => c.key));
 
@@ -3917,28 +3586,45 @@ const ExportModal = ({ isOpen, onClose, onExport, onKalibrasyonPlaniExport, inst
         });
     };
 
-    const ColumnSelector = ({ title, allColumns, selected, setSelected }) => (
+    
+const ColumnSelector = ({ title, allColumns, selected, setSelected }) => {
+    const allKeys = allColumns.map(c => c.key);
+    const allSelected = selected.length === allKeys.length && allKeys.every(k => selected.includes(k));
+    const toggleAll = (checked) => {
+        if (checked) setSelected(allKeys);
+        else setSelected([]);
+    };
+    return (
         e("div", { className: "space-y-2" },
-            e("div", { className: "flex items-center justify-between" }, e("h4", { className: "font-semibold text-slate-800 dark:text-slate-200" }, title), e("label", { className: "flex items-center gap-2 text-xs text-slate-500" }, e("input", { type: "checkbox", checked: selected.length === allColumns.length, onChange: (ev) => setSelected(ev.target.checked ? allColumns.map(c => c.key) : []) }), "Tümü") ),
-            e("div", { className: "grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-2 max-h-48 overflow-y-auto p-2 bg-slate-100 dark:bg-slate-700/50 rounded-md" },
-                allColumns.map(col => (
-                    e("label", { key: col.key, className: "flex items-center gap-2 text-sm" },
+            e("div", { className: "flex items-center justify-between" },
+                e("h4", { className: "font-semibold text-slate-800 dark:text-slate-200" }, title),
+                e("label", { className: "flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300 select-none" },
+                    e("input", { type: "checkbox", className: "h-4 w-4", checked: allSelected, onChange: (ev) => toggleAll(ev.target.checked) }),
+                    "Tümü"
+                )
+            ),
+            e("div", { className: "grid grid-cols-2 md:grid-cols-3 gap-2" },
+                allColumns.map(col =>
+                    e("label", { key: col.key, className: "flex items-center gap-2 p-2 rounded hover:bg-slate-50 dark:hover:bg-slate-700/50 cursor-pointer" },
                         e("input", {
                             type: "checkbox",
+                            className: "h-4 w-4",
                             checked: selected.includes(col.key),
-                            onChange: () => setSelected(prev =>
-                                prev.includes(col.key)
-                                    ? prev.filter(k => k !== col.key)
-                                    : [...prev, col.key]
-                            )
+                            onChange: (e2) => {
+                                if (e2.target.checked) {
+                                    if (!selected.includes(col.key)) setSelected([...selected, col.key]);
+                                } else {
+                                    setSelected(selected.filter(k => k !== col.key));
+                                }
+                            }
                         }),
-                        col.label
+                        e("span", { className: "text-sm text-slate-700 dark:text-slate-200" }, col.label)
                     )
-                ))
+                )
             )
         )
     );
-
+};
     return e(Modal, { isOpen, onClose, title: "Dışa Aktarma Seçenekleri" },
         e("div", { className: "space-y-4" },
             e("p", {}, `Seçili filtrelerle eşleşen ${Array.isArray(instruments) ? instruments.length : 0} cihaz dışa aktarılacak. Lütfen dahil edilecek sütunları seçin.`),
@@ -3956,7 +3642,6 @@ const ExportModal = ({ isOpen, onClose, onExport, onKalibrasyonPlaniExport, inst
             }),
             e("div", { className: "flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-700" },
                 e("button", { onClick: onClose, className: "px-4 py-2 rounded-md font-semibold" }, "İptal"),
-                e("button", { onClick: () => onKalibrasyonPlaniExport(instruments), className: "px-4 py-2 rounded-md text-white bg-emerald-600 hover:bg-emerald-700 font-semibold" }, "Kalibrasyon Planı Formatı"),
                 e("button", { onClick: handleExportClick, className: "px-4 py-2 rounded-md text-white bg-sky-600 font-semibold" }, "Dışa Aktar")
             )
         )
@@ -4062,14 +3747,23 @@ const BulkRecordEditModal = ({ isOpen, onClose, onSave, recordCount }) => {
     );
 };
 
-const CalendarModal = ({ isOpen, onNavigate, onClose, instruments, onAddInstrument }) => {
+const CalendarModal = ({ isOpen, onNavigate, onClose, instruments, onOpenInstrument, onDayClick }) => {
+
+    // Local date key helper to avoid UTC shift issues
+    const dateKeyOf = (d) => {
+        if (!d || Object.prototype.toString.call(d) !== '[object Date]' || isNaN(d.getTime())) return '';
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${y}-${m}-${day}`;
+    };
     const [currentDate, setCurrentDate] = useState(new Date());
 
     const sampleInstruments = [
         { id: 'SAMPLE01', name: 'Örnek Cihaz 1', serialNumber: 'SN001', lastCalibrationDate: '2024-05-10', nextCalibrationDate: '2025-05-10', status: CalibrationStatus.OK },
         { id: 'SAMPLE02', name: 'Örnek Cihaz 2', serialNumber: 'SN002', lastCalibrationDate: '2024-06-20', nextCalibrationDate: '2024-07-20', status: CalibrationStatus.DUE_SOON },
         { id: 'SAMPLE03', name: 'Örnek Cihaz 3', serialNumber: 'SN003', lastCalibrationDate: '2024-04-01', nextCalibrationDate: '2024-05-01', status: CalibrationStatus.OVERDUE },
-        { id: 'SAMPLE04', name: 'Örnek Cihaz 4', serialNumber: 'SN004', lastCalibrationDate: '2023-07-15', nextCalibrationDate:(window.localDateKeyOf?window.ymd( new Date()): new Date().toISOString().split('T')[0]), status: CalibrationStatus.DUE_SOON }
+        { id: 'SAMPLE04', name: 'Örnek Cihaz 4', serialNumber: 'SN004', lastCalibrationDate: '2023-07-15', nextCalibrationDate: dateKeyOf(new Date()), status: CalibrationStatus.DUE_SOON }
     ];
 
     const devicesToDisplay = (instruments.length === 0 && location.protocol === 'file:') ? sampleInstruments : instruments;
@@ -4078,7 +3772,7 @@ const CalendarModal = ({ isOpen, onNavigate, onClose, instruments, onAddInstrume
         const events = new Map();
         const addEvent = (dateStr, event) => {
             if (!dateStr || dateStr === 'N/A') return;
-            const key = (window.ymd ? window.ymd(dateStr) : String(dateStr).substring(0,10));
+            const key = dateStr.substring(0, 10);
             if (!events.has(key)) {
                 events.set(key, []);
             }
@@ -4095,9 +3789,28 @@ const CalendarModal = ({ isOpen, onNavigate, onClose, instruments, onAddInstrume
     const handlePrevMonth = () => setCurrentDate(d => new Date(d.getFullYear(), d.getMonth() - 1, 1));
     const handleNextMonth = () => setCurrentDate(d => new Date(d.getFullYear(), d.getMonth() + 1, 1));
     const handleToday = () => setCurrentDate(new Date());
+    // Ay/Gün filtreleri// 1..12// 1..31
+    
 
     const handleEventClick = (instrument) => {
-        onNavigate('instruments', { searchTerm: instrument.serialNumber });
+        
+        try {
+            // try to open exact instrument detail via prop
+            const target = (instruments || []).find(i => 
+                (instrument.id && i.id === instrument.id) || 
+                (instrument.serialNumber && i.serialNumber === instrument.serialNumber)
+            );
+            if (typeof onOpenInstrument === 'function' && target) {
+                onOpenInstrument(target.id);
+                if (typeof onClose === 'function') onClose();
+                return;
+            }
+        } catch(e) { /* fallback below */ }
+        // fallback: go to instruments list filtered by serial
+        if (typeof onNavigate === 'function') {
+            onNavigate('instruments', { searchTerm: instrument.serialNumber || instrument.id || '' });
+        }
+    
     };
 
     const handleExportICS = () => {
@@ -4114,7 +3827,7 @@ const CalendarModal = ({ isOpen, onNavigate, onClose, instruments, onAddInstrume
                     const dt = dateStr.replace(/-/g, '');
                     const nextDay = new Date(eventDate);
                     nextDay.setDate(nextDay.getDate() + 1);
-                    const dtEnd =(window.localDateKeyOf?window.ymd( nextDay): (window.ymd ? window.ymd(nextDay) : nextDay.toISOString().split('T')[0])).replace(/-/g, '');
+                    const dtEnd = dateKeyOf(nextDay).replace(/-/g, '');
                     
                     icsString += `BEGIN:VEVENT\r\n`;
                     icsString += `DTSTAMP:${new Date().toISOString().replace(/[-:.]/g, '')}Z\r\n`;
@@ -4173,9 +3886,10 @@ const CalendarModal = ({ isOpen, onNavigate, onClose, instruments, onAddInstrume
         const prefix = event.type === 'last' ? 'Son Kal.' : 'Sıradaki Kal.';
 
         return e('button', {
-            onClick: (ev) => { if (ev && ev.stopPropagation) ev.stopPropagation(); onClick(event); },
+            onClick: (evt) => { try { evt && evt.stopPropagation && evt.stopPropagation(); evt && evt.preventDefault && evt.preventDefault(); } catch(e){}; onClick(event); },
             className: `flex items-center gap-1.5 w-full text-left p-1 rounded-md text-xs font-medium ${colorSet.bg} hover:ring-2 ring-sky-500 transition-all`,
-            title: `${prefix}: ${event.name} (SN: ${event.serialNumber})`, 'data-event-chip': '1'},
+            title: `${prefix}: ${event.name} (SN: ${event.serialNumber})`
+        },
             e('div', { className: `w-2 h-2 rounded-full flex-shrink-0 ${colorSet.dot}` }),
             e('span', { className: `truncate ${colorSet.text}` }, `${event.name} (SN: ${event.serialNumber})`)
         );
@@ -4209,53 +3923,57 @@ const CalendarModal = ({ isOpen, onNavigate, onClose, instruments, onAddInstrume
                 e("h3", { className: "text-lg font-semibold" },
                     new Intl.DateTimeFormat('tr-TR', { year: 'numeric', month: 'long' }).format(currentDate)
                 ),
-                e("div", { className: "flex items-center gap-2" },
-                    e("select", {
-                        value: String(currentDate.getMonth()),
-                        onChange: (ev) => setCurrentDate(new Date(currentDate.getFullYear(), parseInt(ev.target.value, 10), 1)),
-                        className: "px-2 py-1 rounded border text-sm bg-white dark:bg-slate-800"
-                    },
-                        e("option", { value: "0" }, "Ocak"),
-                        e("option", { value: "1" }, "Şubat"),
-                        e("option", { value: "2" }, "Mart"),
-                        e("option", { value: "3" }, "Nisan"),
-                        e("option", { value: "4" }, "Mayıs"),
-                        e("option", { value: "5" }, "Haziran"),
-                        e("option", { value: "6" }, "Temmuz"),
-                        e("option", { value: "7" }, "Ağustos"),
-                        e("option", { value: "8" }, "Eylül"),
-                        e("option", { value: "9" }, "Ekim"),
-                        e("option", { value: "10" }, "Kasım"),
-                        e("option", { value: "11" }, "Aralık")
-                    ),
-                    e("select", {
-                        value: String(currentDate.getFullYear()),
-                        onChange: (ev) => setCurrentDate(new Date(parseInt(ev.target.value, 10), currentDate.getMonth(), 1)),
-                        className: "px-2 py-1 rounded border text-sm bg-white dark:bg-slate-800"
-                    },
-                        ...Array.from({length: 21}, function(_,i) {
-                            var y = new Date().getFullYear() - 10 + i;
-                            return e("option", { key: String(y), value: String(y) }, String(y));
-                        })
-                    )
-                ),
-
                 e("button", { onClick: handleExportICS, className: "flex items-center gap-2 px-4 py-1.5 text-sm font-semibold rounded-md hover:bg-slate-100 dark:hover:bg-slate-700" },
                     e(DocumentArrowDownIcon, { className: "w-4 h-4" }),
                     "Dışa Aktar (.ics)"
                 )
             ),
+            
+            
+            // Ay/Yıl seçicileri (navigasyon)
+            e("div", { className: "flex items-center justify-end gap-2 mt-2" },
+                e("select", {
+                    value: (new Date(currentDate)).getMonth() + 1,
+                    onChange: (ev) => {
+                        const m = parseInt(ev.target.value, 10) - 1;
+                        const d = new Date(currentDate);
+                        const y = d.getFullYear();
+                        setCurrentDate(new Date(y, m, 1));
+                    },
+                    className: "px-3 py-1.5 rounded-md bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-slate-100"
+                },
+                    ...Array.from({length:12}, (_,i) => e("option", { key: i+1, value: i+1 },
+                        new Intl.DateTimeFormat('tr-TR', { month: 'long' }).format(new Date(2025, i, 1))
+                    ))
+                ),
+                e("select", {
+                    value: (new Date(currentDate)).getFullYear(),
+                    onChange: (ev) => {
+                        const y = parseInt(ev.target.value, 10);
+                        const d = new Date(currentDate);
+                        setCurrentDate(new Date(y, d.getMonth(), 1));
+                    },
+                    className: "px-3 py-1.5 rounded-md bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-slate-100"
+                },
+                    ...Array.from({length:21}, (_,idx) => {
+                        const base = (new Date(currentDate)).getFullYear();
+                        const year = base - 10 + idx;
+                        return e("option", { key: year, value: year }, String(year));
+                    })
+                )
+            ),
             e("div", { className: "grid grid-cols-7 flex-grow" },
                 dayNames.map(day => e("div", { key: day, className: "text-center font-semibold text-sm p-2 border-r border-b dark:border-slate-700" }, day)),
                 weeks.flat().map((day, index) => {
-                    const dateKey = (window.localDateKeyOf ? window.ymd(day) :(window.localDateKeyOf?window.ymd( day): (window.ymd ? window.ymd(day) : day.toISOString().split('T')[0])));
+                    const dateKey = dateKeyOf(day);
                     const dayEvents = eventsByDate.get(dateKey) || [];
                     const isCurrentMonth = day.getMonth() === currentDate.getMonth();
-                    const isToday =(window.localDateKeyOf?window.ymd( day): (window.ymd ? window.ymd(day) : day.toISOString().split('T')[0])) ===(window.localDateKeyOf?window.ymd( new Date()): new Date().toISOString().split('T')[0]);
+                    const isToday = dateKeyOf(day) === dateKeyOf(new Date());
 
                     return e("div", {
                         key: index,
-                        className: `relative p-1.5 border-r border-b dark:border-slate-700 flex flex-col gap-1 overflow-y-auto ${!isCurrentMonth ? 'bg-slate-50 dark:bg-slate-800/50' : ''}`, onClick: () => { try { onAddInstrument && onAddInstrument(); } catch (e) { console.warn('onAddInstrument failed', e); } }},
+                        onClick: () => onDayClick && onDayClick(dateKey), className: `relative p-1.5 border-r border-b dark:border-slate-700 flex flex-col gap-1 overflow-y-auto ${!isCurrentMonth ? 'bg-slate-50 dark:bg-slate-800/50' : ''}`
+                    },
                         e("span", {
                             className: `text-xs font-semibold ${isToday ? 'bg-sky-600 text-white rounded-full w-5 h-5 flex items-center justify-center' : ''} ${!isCurrentMonth ? 'text-slate-400' : ''}`
                         }, day.getDate()),
@@ -4274,5 +3992,13 @@ root.render(e(App));
 
 </script>
 <script type="module" src="/index.tsx"></script>
+
+  <!-- App Version Badge -->
+  <div id="app-version" class="fixed bottom-3 right-3 z-40 pointer-events-none">
+    <span class="inline-block px-2 py-1 text-xs rounded border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 shadow-sm">
+      Caltrack ver10.9.3
+    </span>
+  </div>
+
 </body>
 </html>
