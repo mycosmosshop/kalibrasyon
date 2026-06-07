@@ -210,7 +210,8 @@ const generateSequentialId = (instruments) => {
 };
 
 const calculateEffectiveDeviation = (deviation, uncertainty) => {
-    return Math.abs(deviation) + uncertainty;
+    // Ondalık (floating-point) hatasını temizle: 0.42000000000000004 -> 0.42
+    return parseFloat(((Math.abs(Number(deviation) || 0)) + (Number(uncertainty) || 0)).toFixed(6));
 };
 
 const getCalibrationResult = (effectiveDeviation, permissibleDeviation) => {
