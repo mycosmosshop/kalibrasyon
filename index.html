@@ -3321,13 +3321,9 @@ const SettingsModal = ({ isOpen, onClose, settings, onSave, instruments, getInst
                 };
             }
 
-            const r = await fetch(`${api}/admin/config`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(body)
-            });
-            const j = await r.json().catch(() => ({}));
-            if (!r.ok || !j.ok) throw new Error(j.error || r.statusText || "sync failed");
+            // Apps Script tabanlı cron kullanılıyor → sunucuya schedule KAYDI yapılmaz (no-op).
+            // Otomatik mail, Apps Script'teki 'dailyCheck' zaman tetikleyicisi ile gönderilir.
+            void body;
             
             if (isEnabled) {
                 lastHash.current = criticalInstrumentsHash;
@@ -3377,9 +3373,11 @@ const SettingsModal = ({ isOpen, onClose, settings, onSave, instruments, getInst
             if (criticalInstruments.length === 0) throw new Error("Gönderilecek cihaz yok.");
             updateStatus("Test maili gönderiliyor...", "text-sky-500");
 
-            const r = await fetch(`${api}/send-now`, {
+            if (!api) throw new Error("Servis URL girilmedi.");
+            await fetch(api, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                mode: "no-cors",
+                headers: { "Content-Type": "text/plain;charset=utf-8" },
                 body: JSON.stringify({
                     toList: toList.split(",").map(s => s.trim()).filter(Boolean),
                     subject: `Kalibrasyon — Geciken & ${thr} gün içinde Yaklaşıyor (Anlık Test)`,
@@ -3387,11 +3385,8 @@ const SettingsModal = ({ isOpen, onClose, settings, onSave, instruments, getInst
                     devices: criticalInstruments
                 })
             });
-             const j = await r.json().catch(() => ({}));
-            if (!r.ok || !j.ok) throw new Error(j.error || r.statusText || "send-now failed");
-
-            updateStatus("Test tetiklendi.", "text-green-500");
-            addLog("Test maili tetiklendi. Cihaz: " + criticalInstruments.length);
+            updateStatus("Test maili gönderildi (Apps Script).", "text-green-500");
+            addLog("Test maili gönderildi. Cihaz: " + criticalInstruments.length);
         } catch (e) {
             updateStatus(`Hata: ${e.message}`, "text-red-500");
             addLog(`HATA: ${e.message}`);
