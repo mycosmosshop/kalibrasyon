@@ -1152,7 +1152,11 @@ return instruments.map(instrument => {
     
         const newRecords = [];
         const newInstrumentsFromExcel = new Map();
-        const existingInstrumentsBySerial = new Map(instruments.map(inst => [inst.serialNumber, inst]));
+        // Seri no geçersizse (N/A, -, boş) Cihaz ID'ye göre grupla → "N/A" seri no'lu cihazlar birbirini EZMESİN
+        const _validSer = (s)=>{ s=String(s==null?'':s).trim(); return (s!=='' && !['N/A','n/a','-','—','--'].includes(s)) ? s : null; };
+        const _validCid = (c)=>{ c=String(c==null?'':c).trim(); return (c!=='' && !['-','—','N/A'].includes(c)) ? c : null; };
+        const _grpKey = (serialV, cidV, uniq)=> _validSer(serialV) || (_validCid(cidV) ? ('CID::'+_validCid(cidV)) : ('ROW::'+uniq));
+        const existingInstrumentsBySerial = new Map(instruments.map(inst => [_grpKey(inst.serialNumber, inst.providedId || inst.id, 'EX'+inst.id), inst]));
         let newInstrumentCounter = 0;
         let updatedInstrumentsMap = new Map();
 
@@ -1169,16 +1173,16 @@ return instruments.map(instrument => {
                 }
             });
     
-            if (!rowData.serialNumber) {
-                console.warn(`Satır ${rowIndex + 2} atlandı: 'Seri No' bilgisi eksik.`);
+            if (!rowData.serialNumber && !rowData.id && !rowData.name) {
+                console.warn(`Satır ${rowIndex + 2} atlandı: boş satır (seri no / cihaz id / ad yok).`);
                 return;
             }
 
-            const serial = String(rowData.serialNumber);
+            const { id: providedId, ...restOfRowData } = rowData;
+            const realSerial = String(rowData.serialNumber || '');
+            const serial = _grpKey(realSerial, providedId, 'IMP'+rowIndex); // gruplama anahtarı (seri geçersizse Cihaz ID)
             let instrumentToProcess;
             let existingInstrument = existingInstrumentsBySerial.get(serial);
-            
-            const { id: providedId, ...restOfRowData } = rowData;
 
             const instrumentDataFromRow = Object.fromEntries(
                 Object.entries(restOfRowData).filter(([_, v]) => v !== undefined && v !== null && String(v).trim() !== '')
@@ -1193,7 +1197,7 @@ return instruments.map(instrument => {
                     instrumentToProcess = {
                         id: `new_${serial}_${newInstrumentCounter++}`, // Temporary ID for linking records
                         providedId: providedId ? String(providedId) : null,
-                        name: '', serialNumber: serial, model: '', location: '', department: '',
+                        name: '', serialNumber: realSerial, model: '', location: '', department: '',
                         calibrationInterval: 12, permissibleDeviation: 0, unit: '', procedure: '',
                         lastCalibrationDate: '', measurementRange: '', resolution: '', image: null,
                         ...instrumentDataFromRow,
