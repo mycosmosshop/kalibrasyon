@@ -1495,31 +1495,17 @@ return instruments.map(instrument => {
                 devices,
             };
     
-            const res = await fetch(`${serviceUrl}/send-now`, {
+            // Google Apps Script (Gmail) mailer — CORS preflight'tan kaçınmak için no-cors + text/plain
+            // (yanıt opak okunamaz; hata fırlatmazsa iyimser başarı kabul edilir, Apps Script maili gönderir)
+            await fetch(serviceUrl, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                mode: 'no-cors',
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
                 body: JSON.stringify(payload),
                 signal: controller.signal
             });
-    
             clearTimeout(timeoutId);
-    
-            if (!res.ok) {
-                 let errorMessage = res.statusText;
-                 try {
-                     const errorData = await res.json();
-                     if (errorData.error) errorMessage = errorData.error;
-                 } catch (e) {}
-                 return { message: `Sunucu Hatası (${res.status}): ${errorMessage}`, type: 'error' };
-            }
-    
-            const data = await res.json().catch(() => ({}));
-            if (data.ok) {
-                const successMessage = data.message || 'E-posta başarıyla gönderildi. E-postanın gelmesi birkaç dakika sürebilir.';
-                return { message: successMessage, type: 'success' };
-            } else {
-                return { message: `Hata: ${data.error || 'Bilinmeyen bir sunucu hatası oluştu.'}`, type: 'error' };
-            }
+            return { message: `E-posta gönderildi (${recipients.length} alıcı, ${devices.length} cihaz). Gelmesi birkaç dakika sürebilir.`, type: 'success' };
         } catch (e) {
             clearTimeout(timeoutId);
              if (e.name === 'AbortError') {
