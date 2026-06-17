@@ -20,8 +20,58 @@ var DEFAULT_THRESHOLD = 30; // ayarlarda yoksa varsayılan "yaklaşıyor" eşiğ
 
 // ---- Web app: warm-up (GET) ve manuel gönderim (POST) ----
 function doGet(e) {
+  // ?bridge=1 → Drive yükleme köprüsü (iframe olarak embed edilir)
+  if (e && e.parameter && e.parameter.bridge === '1') {
+    return HtmlService.createHtmlOutput(_bridgeHtml())
+      .setTitle('Drive Bridge')
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+  }
   return ContentService.createTextOutput(JSON.stringify({ ok: true, service: 'kalibrasyon-mailer' }))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+// ---- Drive PDF Yükleme ----
+var DRIVE_FOLDER_NAME = 'Kalibrasyon Raporları';
+
+function uploadFileToDrive(base64Data, fileName, mimeType) {
+  try {
+    var folder, folders = DriveApp.getFoldersByName(DRIVE_FOLDER_NAME);
+    folder = folders.hasNext() ? folders.next() : DriveApp.createFolder(DRIVE_FOLDER_NAME);
+    var bytes = Utilities.base64Decode(base64Data);
+    var blob = Utilities.newBlob(bytes, mimeType || 'application/pdf', fileName);
+    var file = folder.createFile(blob);
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    var id = file.getId();
+    return { success: true, fileId: id,
+      driveUrl: 'https://drive.google.com/file/d/' + id + '/view?usp=sharing',
+      previewUrl: 'https://drive.google.com/file/d/' + id + '/preview' };
+  } catch (err) { return { success: false, error: String(err) }; }
+}
+
+function deleteFileFromDrive(fileId) {
+  try { DriveApp.getFileById(fileId).setTrashed(true); return { success: true }; }
+  catch (err) { return { success: false, error: String(err) }; }
+}
+
+function _bridgeHtml() {
+  return '<!DOCTYPE html><html><head><script>' +
+    'window.addEventListener("message",function(ev){' +
+      'var d=ev.data;if(!d||!d.type)return;' +
+      'if(d.type==="UPLOAD"){' +
+        'google.script.run' +
+          '.withSuccessHandler(function(r){ev.source.postMessage({type:"UPLOAD_DONE",id:d.id,result:r},"*");})' +
+          '.withFailureHandler(function(e){ev.source.postMessage({type:"UPLOAD_DONE",id:d.id,result:{success:false,error:e.message}},"*");})' +
+          '.uploadFileToDrive(d.base64,d.filename,d.mimeType);' +
+      '}' +
+      'if(d.type==="DELETE"){' +
+        'google.script.run' +
+          '.withSuccessHandler(function(r){ev.source.postMessage({type:"DELETE_DONE",id:d.id,result:r},"*");})' +
+          '.deleteFileFromDrive(d.fileId);' +
+      '}' +
+      'if(d.type==="PING"){ev.source.postMessage({type:"PONG"},"*");}' +
+    '});' +
+    'window.onload=function(){if(window.parent!==window)window.parent.postMessage({type:"BRIDGE_READY"},"*");};' +
+    '<\/script><\/head><body><\/body><\/html>';
 }
 
 function doPost(e) {

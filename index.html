@@ -141,6 +141,39 @@ import { GoogleGenAI } from "@google/genai";
 
 const e = React.createElement;
 
+// ============================================================
+// Google Drive Bridge (GAS iframe köprüsü üzerinden PDF yükle)
+// ============================================================
+let _db = null, _dbReady = false, _dbCbs = {}, _dbN = 0;
+window.addEventListener('message', function(ev) {
+  var d = ev.data;
+  if (!d || !d.type) return;
+  if (d.type === 'BRIDGE_READY') { _dbReady = true; console.log('[Drive] Bridge hazır'); }
+  if (d.type === 'UPLOAD_DONE' && _dbCbs[d.id]) { _dbCbs[d.id](d.result); delete _dbCbs[d.id]; }
+});
+function initDriveBridge(url) {
+  if (!url || _db) return;
+  var fr = document.createElement('iframe');
+  fr.src = url + (url.includes('?') ? '&' : '?') + 'bridge=1';
+  fr.style.cssText = 'display:none;width:0;height:0;border:none;position:absolute;left:-9999px;';
+  document.body.appendChild(fr);
+  _db = fr;
+}
+function uploadToDrive(file) {
+  return new Promise(function(res, rej) {
+    if (!_db || !_dbReady) { rej(new Error('Drive köprüsü henüz hazır değil. GAS Servis URL ayarlanmış mı?')); return; }
+    var id = ++_dbN;
+    var tid = setTimeout(function() { delete _dbCbs[id]; rej(new Error('Zaman aşımı (60s) — Drive yanıt vermedi.')); }, 60000);
+    _dbCbs[id] = function(r) { clearTimeout(tid); r.success ? res(r) : rej(new Error(r.error || 'Drive yükleme hatası')); };
+    var reader = new FileReader();
+    reader.onload = function(ev2) {
+      _db.contentWindow.postMessage({type:'UPLOAD', id:id, filename:file.name, base64:ev2.target.result.split(',')[1], mimeType:file.type||'application/pdf'}, '*');
+    };
+    reader.readAsDataURL(file);
+  });
+}
+// ============================================================
+
 let ai = null;
 const reinitializeGenAI = () => {
     const API_KEY = (window.__GENAI_API_KEY__ ?? localStorage.getItem('GENAI_API_KEY')) || null;
@@ -537,9 +570,19 @@ const FormFileInput = ({ label, id, file, onFileChange, onFileRemove, accept }) 
     e("div", null,
         e("label", { htmlFor: id, className: "block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1" }, label),
         file ? (
-            e("div", { className: "flex items-center justify-between p-2 border border-slate-300 dark:border-slate-600 rounded-md" },
-                e("span", { className: "text-sm truncate" }, file.name),
-                e("button", { type: "button", onClick: onFileRemove, className: "text-red-500 hover:text-red-700 ml-2" },
+            e("div", { className: "flex items-center justify-between p-2 border border-slate-300 dark:border-slate-600 rounded-md bg-slate-50 dark:bg-slate-700/50" },
+                e("div", { className: "flex items-center gap-2 min-w-0" },
+                    e("span", { className: "text-xs truncate text-slate-700 dark:text-slate-300" }, file.name),
+                    file.driveUrl && e("a", {
+                        href: file.driveUrl, target: "_blank", rel: "noopener noreferrer",
+                        className: "shrink-0 text-xs px-2 py-0.5 rounded bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/40 dark:text-blue-300 font-medium"
+                    }, "Drive'da Aç ↗"),
+                    file.previewUrl && e("a", {
+                        href: file.previewUrl, target: "_blank", rel: "noopener noreferrer",
+                        className: "shrink-0 text-xs px-2 py-0.5 rounded bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/40 dark:text-green-300 font-medium"
+                    }, "Önizle")
+                ),
+                e("button", { type: "button", onClick: onFileRemove, className: "text-red-500 hover:text-red-700 ml-2 shrink-0" },
                     e(XMarkIcon, { className: "w-4 h-4" })
                 )
             )
@@ -675,6 +718,11 @@ const App = () => {
             window.removeEventListener('genai-reinitialized', handleAiUpdate);
         };
     }, []);
+
+    // Drive bridge: ayarlardaki GAS URL hazır olduğunda köprüyü başlat
+    useEffect(() => {
+        if (localSettings.serviceUrl) initDriveBridge(localSettings.serviceUrl);
+    }, [localSettings.serviceUrl]);
 
     useEffect(() => {
         const updateCheckInterval = setInterval(() => {
@@ -2427,10 +2475,11 @@ const InstrumentDetailView = ({ instrument, records, onBack, onEditInstrument, o
     }, [records]);
 
     const handleDownloadReport = (reportFile) => {
-        if (!reportFile || !reportFile.data) {
-            toastService.error("Rapor dosyası bulunamadı veya bozuk.");
-            return;
-        }
+        if (!reportFile) { toastService.error("Rapor dosyası yok."); return; }
+        // Drive formatı: driveUrl ile aç
+        if (reportFile.driveUrl) { window.open(reportFile.driveUrl, '_blank'); return; }
+        // Eski base64 formatı
+        if (!reportFile.data) { toastService.error("Rapor dosyası bulunamadı veya bozuk."); return; }
         try {
             const link = document.createElement('a');
             link.href = reportFile.data;
@@ -2439,7 +2488,6 @@ const InstrumentDetailView = ({ instrument, records, onBack, onEditInstrument, o
             link.click();
             document.body.removeChild(link);
         } catch (error) {
-            console.error("Rapor indirme hatası:", error);
             toastService.error("Rapor indirilirken bir hata oluştu.");
         }
     };
@@ -2962,17 +3010,29 @@ const CalibrationForm = ({ isOpen, onClose, onSave, instrumentId, instruments, r
 
     const handleFileChange = async (e) => {
         const file = e.target.files?.[0];
-        if (file) {
+        if (!file) return;
+        if (_dbReady) {
+            // Drive'a yükle
+            toastService.info('PDF Google Drive\'a yükleniyor...');
+            try {
+                const result = await uploadToDrive(file);
+                setFormData(prev => ({
+                    ...prev,
+                    reportFile: { name: file.name, driveFileId: result.fileId, driveUrl: result.driveUrl, previewUrl: result.previewUrl }
+                }));
+                toastService.success('PDF Drive\'a yüklendi ✓');
+            } catch (err) {
+                toastService.error('Drive hatası: ' + err.message);
+            }
+        } else {
+            // GAS ayarlanmamışsa eski yöntem (base64 localStorage)
             const base64 = await fileToBase64(file);
             setFormData(prev => ({
                 ...prev,
-                reportFile: {
-                    name: file.name,
-                    type: file.type,
-                    data: base64
-                }
+                reportFile: { name: file.name, type: file.type, data: base64 }
             }));
         }
+        if (e.target) e.target.value = '';
     };
 
     const handleFileRemove = () => {
