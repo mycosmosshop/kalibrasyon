@@ -145,14 +145,15 @@ const e = React.createElement;
 let _gasUrl = '';
 
 async function uploadToDrive(file, subfolder) {
-  if (!_gasUrl) throw new Error('GAS Servis URL ayarlanmamış (Ayarlar → Servis URL)');
+  const gasUrl = _gasUrl || (() => { try { return JSON.parse(localStorage.getItem('settings') || '{}').serviceUrl || ''; } catch(e) { return ''; } })();
+  if (!gasUrl) throw new Error('GAS Servis URL ayarlanmamış (Ayarlar → Servis URL)');
   const base64 = await new Promise((res, rej) => {
     const r = new FileReader();
     r.onload = ev => res(ev.target.result.split(',')[1]);
     r.onerror = rej;
     r.readAsDataURL(file);
   });
-  const resp = await fetch(_gasUrl, {
+  const resp = await fetch(gasUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain' },
     body: JSON.stringify({ action: 'uploadToDrive', filename: file.name, base64, mimeType: file.type || 'application/pdf', subfolder: subfolder || '' })
