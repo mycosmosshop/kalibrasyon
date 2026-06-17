@@ -141,32 +141,40 @@ import { GoogleGenAI } from "@google/genai";
 
 const e = React.createElement;
 
-// === GitHub PDF Yükleme ===
-let _ghToken = '', _ghRepo = 'mycosmosshop/kalibrasyon';
+// === Google Drive PDF Yükleme (GAS üzerinden) ===
+let _gasUrl = '';
 
-async function uploadToGitHub(file) {
-  if (!_ghToken) throw new Error('GitHub token ayarlanmamış (Ayarlar → GitHub Token)');
-  const [owner, repo] = _ghRepo.split('/');
-  const safe = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-  const path = 'calibration-pdfs/' + Date.now() + '_' + safe;
+async function uploadToDrive(file) {
+  if (!_gasUrl) throw new Error('GAS Servis URL ayarlanmamış (Ayarlar → Servis URL)');
+  const reqId = 'kpdf_' + Date.now();
   const base64 = await new Promise((res, rej) => {
-    const r = new FileReader(); r.onload = ev => res(ev.target.result.split(',')[1]); r.onerror = rej; r.readAsDataURL(file);
+    const r = new FileReader();
+    r.onload = ev => res(ev.target.result.split(',')[1]);
+    r.onerror = rej;
+    r.readAsDataURL(file);
   });
-  const resp = await fetch('https://api.github.com/repos/' + owner + '/' + repo + '/contents/' + path, {
-    method: 'PUT',
-    headers: { 'Authorization': 'token ' + _ghToken, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message: 'Kalibrasyon raporu: ' + file.name, content: base64, branch: 'main' })
+  // POST (no-cors): GAS'a yükle, PropertiesService'e yaz
+  await fetch(_gasUrl, {
+    method: 'POST', mode: 'no-cors',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ action: 'uploadToDrive', requestId: reqId, filename: file.name, base64, mimeType: file.type || 'application/pdf' })
   });
-  if (!resp.ok) { const e = await resp.json().catch(() => ({})); throw new Error(e.message || 'GitHub ' + resp.status); }
-  const data = await resp.json();
-  const rawUrl = data.content.download_url;
-  return {
-    fileId: path,
-    driveUrl: rawUrl,
-    previewUrl: 'https://docs.google.com/viewer?url=' + encodeURIComponent(rawUrl)
-  };
+  // GET ile sonucu oku (GAS ContentService GET → CORS destekler)
+  for (let i = 0; i < 20; i++) {
+    await new Promise(r => setTimeout(r, i === 0 ? 4000 : 3000));
+    try {
+      const resp = await fetch(_gasUrl + '?action=getResult&id=' + reqId, { cache: 'no-store' });
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data.success) return data;
+        if (data.error) throw new Error(data.error);
+        // data.pending → devam et
+      }
+    } catch (err) { if (err.message && !err.message.includes('fetch')) throw err; }
+  }
+  throw new Error('Drive yükleme zaman aşımı (60s). GAS çalışıyor mu?');
 }
-// ============================
+// ===================================================
 
 let ai = null;
 const reinitializeGenAI = () => {
@@ -677,8 +685,6 @@ const App = () => {
         adminKey: '',
         thresholdDays: 15,
         backupOnExit: false,
-        githubToken: '',
-        githubRepo: 'mycosmosshop/kalibrasyon',
     });
 
     const [currentView, setCurrentView] = useState('dashboard');
@@ -715,11 +721,10 @@ const App = () => {
         };
     }, []);
 
-    // GitHub token: ayarlardan güncelle
+    // Drive GAS URL: ayarlardan güncelle
     useEffect(() => {
-        _ghToken = settings.githubToken || '';
-        _ghRepo = settings.githubRepo || 'mycosmosshop/kalibrasyon';
-    }, [settings.githubToken, settings.githubRepo]);
+        _gasUrl = settings.serviceUrl || '';
+    }, [settings.serviceUrl]);
 
     useEffect(() => {
         const updateCheckInterval = setInterval(() => {
@@ -3008,29 +3013,26 @@ const CalibrationForm = ({ isOpen, onClose, onSave, instrumentId, instruments, r
     const handleFileChange = async (e) => {
         const file = e.target.files?.[0];
         if (!file) return;
-        if (_ghToken) {
-            // GitHub'a yükle
-            toastService.info('PDF GitHub\'a yükleniyor...');
+        if (_gasUrl) {
+            toastService.info('PDF Google Drive\'a yükleniyor...');
             try {
-                const result = await uploadToGitHub(file);
+                const result = await uploadToDrive(file);
                 setFormData(prev => ({
                     ...prev,
                     reportFile: { name: file.name, driveFileId: result.fileId, driveUrl: result.driveUrl, previewUrl: result.previewUrl }
                 }));
-                toastService.success('PDF GitHub\'a yüklendi ✓');
+                toastService.success('PDF Drive\'a yüklendi ✓');
             } catch (err) {
-                toastService.error('GitHub hatası: ' + err.message);
+                toastService.error('Drive hatası: ' + err.message);
             }
         } else if (file.size <= 300 * 1024) {
-            // 300KB altı → base64 localStorage (fallback)
             const base64 = await fileToBase64(file);
             setFormData(prev => ({
                 ...prev,
                 reportFile: { name: file.name, type: file.type, data: base64 }
             }));
         } else {
-            // Büyük dosya ve token yok → uyar
-            toastService.error(`PDF çok büyük (${(file.size/1024).toFixed(0)}KB). GitHub token\'ı Ayarlar\'dan girin.`);
+            toastService.error(`PDF çok büyük (${(file.size/1024).toFixed(0)}KB). Drive için Ayarlar → Servis URL girin.`);
             if (e.target) e.target.value = '';
             return;
         }
@@ -3584,19 +3586,6 @@ const SettingsModal = ({ isOpen, onClose, settings, onSave, instruments, getInst
                 ),
 
                 e("div", { className: "p-4 border rounded-lg border-slate-300 dark:border-slate-600 space-y-4" },
-                    e("h3", { className: "text-lg font-semibold text-slate-800 dark:text-slate-100 mb-2" }, "GitHub PDF Yükleme"),
-                    e("p", { className: "text-sm text-slate-500 dark:text-slate-400" },
-                        "Kalibrasyon raporu PDF dosyaları GitHub reposuna yüklenir. Token oluşturmak için: ",
-                        e("a", { href: "https://github.com/settings/tokens", target: "_blank", rel: "noopener noreferrer", className: "text-sky-600 underline" }, "github.com/settings/tokens"),
-                        " → repo yetkili PAT oluşturun."
-                    ),
-                    e("div", { className: "grid grid-cols-1 md:grid-cols-2 gap-4" },
-                        e(FormInput, { label: "GitHub Token (PDF Raporları)", id: "githubToken", name: "githubToken", type: "password", value: localSettings.githubToken || '', onChange: handleChange, placeholder: "ghp_..." }),
-                        e(FormInput, { label: "GitHub Repo", id: "githubRepo", name: "githubRepo", value: localSettings.githubRepo || '', onChange: handleChange, placeholder: "mycosmosshop/kalibrasyon" })
-                    )
-                ),
-
-                 e("div", { className: "p-4 border rounded-lg border-slate-300 dark:border-slate-600 space-y-4" },
                     e("h3", { className: "text-lg font-semibold text-slate-800 dark:text-slate-100" },
                        "Sunucuya Canlı Snapshot Senkronu (Otomatik Raporlama)"
                     ),
