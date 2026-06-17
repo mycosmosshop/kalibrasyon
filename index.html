@@ -141,38 +141,32 @@ import { GoogleGenAI } from "@google/genai";
 
 const e = React.createElement;
 
-// ============================================================
-// Google Drive Bridge (GAS iframe köprüsü üzerinden PDF yükle)
-// ============================================================
-let _db = null, _dbReady = false, _dbCbs = {}, _dbN = 0;
-window.addEventListener('message', function(ev) {
-  var d = ev.data;
-  if (!d || !d.type) return;
-  if (d.type === 'BRIDGE_READY') { _dbReady = true; console.log('[Drive] Bridge hazır'); }
-  if (d.type === 'UPLOAD_DONE' && _dbCbs[d.id]) { _dbCbs[d.id](d.result); delete _dbCbs[d.id]; }
-});
-function initDriveBridge(url) {
-  if (!url || _db) return;
-  var fr = document.createElement('iframe');
-  fr.src = url + (url.includes('?') ? '&' : '?') + 'bridge=1';
-  fr.style.cssText = 'display:none;width:0;height:0;border:none;position:absolute;left:-9999px;';
-  document.body.appendChild(fr);
-  _db = fr;
-}
-function uploadToDrive(file) {
-  return new Promise(function(res, rej) {
-    if (!_db || !_dbReady) { rej(new Error('Drive köprüsü henüz hazır değil. GAS Servis URL ayarlanmış mı?')); return; }
-    var id = ++_dbN;
-    var tid = setTimeout(function() { delete _dbCbs[id]; rej(new Error('Zaman aşımı (60s) — Drive yanıt vermedi.')); }, 60000);
-    _dbCbs[id] = function(r) { clearTimeout(tid); r.success ? res(r) : rej(new Error(r.error || 'Drive yükleme hatası')); };
-    var reader = new FileReader();
-    reader.onload = function(ev2) {
-      _db.contentWindow.postMessage({type:'UPLOAD', id:id, filename:file.name, base64:ev2.target.result.split(',')[1], mimeType:file.type||'application/pdf'}, '*');
-    };
-    reader.readAsDataURL(file);
+// === GitHub PDF Yükleme ===
+let _ghToken = '', _ghRepo = 'mycosmosshop/kalibrasyon';
+
+async function uploadToGitHub(file) {
+  if (!_ghToken) throw new Error('GitHub token ayarlanmamış (Ayarlar → GitHub Token)');
+  const [owner, repo] = _ghRepo.split('/');
+  const safe = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const path = 'calibration-pdfs/' + Date.now() + '_' + safe;
+  const base64 = await new Promise((res, rej) => {
+    const r = new FileReader(); r.onload = ev => res(ev.target.result.split(',')[1]); r.onerror = rej; r.readAsDataURL(file);
   });
+  const resp = await fetch('https://api.github.com/repos/' + owner + '/' + repo + '/contents/' + path, {
+    method: 'PUT',
+    headers: { 'Authorization': 'token ' + _ghToken, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message: 'Kalibrasyon raporu: ' + file.name, content: base64, branch: 'main' })
+  });
+  if (!resp.ok) { const e = await resp.json().catch(() => ({})); throw new Error(e.message || 'GitHub ' + resp.status); }
+  const data = await resp.json();
+  const rawUrl = data.content.download_url;
+  return {
+    fileId: path,
+    driveUrl: rawUrl,
+    previewUrl: 'https://docs.google.com/viewer?url=' + encodeURIComponent(rawUrl)
+  };
 }
-// ============================================================
+// ============================
 
 let ai = null;
 const reinitializeGenAI = () => {
@@ -683,6 +677,8 @@ const App = () => {
         adminKey: '',
         thresholdDays: 15,
         backupOnExit: false,
+        githubToken: '',
+        githubRepo: 'mycosmosshop/kalibrasyon',
     });
 
     const [currentView, setCurrentView] = useState('dashboard');
@@ -719,10 +715,11 @@ const App = () => {
         };
     }, []);
 
-    // Drive bridge: ayarlardaki GAS URL hazır olduğunda köprüyü başlat
+    // GitHub token: ayarlardan güncelle
     useEffect(() => {
-        if (settings.serviceUrl) initDriveBridge(settings.serviceUrl);
-    }, [settings.serviceUrl]);
+        _ghToken = settings.githubToken || '';
+        _ghRepo = settings.githubRepo || 'mycosmosshop/kalibrasyon';
+    }, [settings.githubToken, settings.githubRepo]);
 
     useEffect(() => {
         const updateCheckInterval = setInterval(() => {
@@ -3011,29 +3008,29 @@ const CalibrationForm = ({ isOpen, onClose, onSave, instrumentId, instruments, r
     const handleFileChange = async (e) => {
         const file = e.target.files?.[0];
         if (!file) return;
-        if (_dbReady) {
-            // Drive'a yükle
-            toastService.info('PDF Google Drive\'a yükleniyor...');
+        if (_ghToken) {
+            // GitHub'a yükle
+            toastService.info('PDF GitHub\'a yükleniyor...');
             try {
-                const result = await uploadToDrive(file);
+                const result = await uploadToGitHub(file);
                 setFormData(prev => ({
                     ...prev,
                     reportFile: { name: file.name, driveFileId: result.fileId, driveUrl: result.driveUrl, previewUrl: result.previewUrl }
                 }));
-                toastService.success('PDF Drive\'a yüklendi ✓');
+                toastService.success('PDF GitHub\'a yüklendi ✓');
             } catch (err) {
-                toastService.error('Drive hatası: ' + err.message);
+                toastService.error('GitHub hatası: ' + err.message);
             }
         } else if (file.size <= 300 * 1024) {
-            // 300KB altı → base64 localStorage (eski yöntem)
+            // 300KB altı → base64 localStorage (fallback)
             const base64 = await fileToBase64(file);
             setFormData(prev => ({
                 ...prev,
                 reportFile: { name: file.name, type: file.type, data: base64 }
             }));
         } else {
-            // Büyük dosya ve Drive hazır değil → uyar
-            toastService.error(`PDF çok büyük (${(file.size/1024).toFixed(0)}KB). Drive yüklemesi için GAS Servis URL\'sini Ayarlar\'dan girin ve GAS\'ı güncelleyin.`);
+            // Büyük dosya ve token yok → uyar
+            toastService.error(`PDF çok büyük (${(file.size/1024).toFixed(0)}KB). GitHub token\'ı Ayarlar\'dan girin.`);
             if (e.target) e.target.value = '';
             return;
         }
@@ -3584,6 +3581,19 @@ const SettingsModal = ({ isOpen, onClose, settings, onSave, instruments, getInst
                         onItemsChange: (newDepartments) => setLocalSettings(prev => ({...prev, departments: newDepartments})),
                         placeholder: "Yeni departman ekle..."
                     })
+                ),
+
+                e("div", { className: "p-4 border rounded-lg border-slate-300 dark:border-slate-600 space-y-4" },
+                    e("h3", { className: "text-lg font-semibold text-slate-800 dark:text-slate-100 mb-2" }, "GitHub PDF Yükleme"),
+                    e("p", { className: "text-sm text-slate-500 dark:text-slate-400" },
+                        "Kalibrasyon raporu PDF dosyaları GitHub reposuna yüklenir. Token oluşturmak için: ",
+                        e("a", { href: "https://github.com/settings/tokens", target: "_blank", rel: "noopener noreferrer", className: "text-sky-600 underline" }, "github.com/settings/tokens"),
+                        " → repo yetkili PAT oluşturun."
+                    ),
+                    e("div", { className: "grid grid-cols-1 md:grid-cols-2 gap-4" },
+                        e(FormInput, { label: "GitHub Token (PDF Raporları)", id: "githubToken", name: "githubToken", type: "password", value: localSettings.githubToken || '', onChange: handleChange, placeholder: "ghp_..." }),
+                        e(FormInput, { label: "GitHub Repo", id: "githubRepo", name: "githubRepo", value: localSettings.githubRepo || '', onChange: handleChange, placeholder: "mycosmosshop/kalibrasyon" })
+                    )
                 ),
 
                  e("div", { className: "p-4 border rounded-lg border-slate-300 dark:border-slate-600 space-y-4" },
