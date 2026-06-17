@@ -14,7 +14,7 @@
  ********************************************************************************/
 
 var SUPA_URL = 'https://chchaielttnimuuezazb.supabase.co';
-var SERVICE_ROLE_KEY = 'BURAYA_SUPABASE_SERVICE_ROLE_KEY';   // Supabase → Settings → API → service_role (gizli)
+var SERVICE_ROLE_KEY = 'eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNoY2hhaWVsdHRuaW11dWV6YXpiIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MDc3MzY2NCwiZXhwIjoyMDk2MzQ5NjY0fQ';   // Supabase → Settings → API → service_role (gizli)
 var ROW_ID = 'kalibrasyon';
 var DEFAULT_THRESHOLD = 30; // ayarlarda yoksa varsayılan "yaklaşıyor" eşiği (gün)
 
@@ -36,10 +36,15 @@ function doGet(e) {
 // ---- Drive PDF Yükleme ----
 var DRIVE_FOLDER_NAME = 'Kalibrasyon Raporları';
 
-function uploadFileToDrive(base64Data, fileName, mimeType) {
+function uploadFileToDrive(base64Data, fileName, mimeType, subfolder) {
   try {
-    var folder, folders = DriveApp.getFoldersByName(DRIVE_FOLDER_NAME);
-    folder = folders.hasNext() ? folders.next() : DriveApp.createFolder(DRIVE_FOLDER_NAME);
+    var rootFolders = DriveApp.getFoldersByName(DRIVE_FOLDER_NAME);
+    var root = rootFolders.hasNext() ? rootFolders.next() : DriveApp.createFolder(DRIVE_FOLDER_NAME);
+    var folder = root;
+    if (subfolder) {
+      var sub = root.getFoldersByName(subfolder);
+      folder = sub.hasNext() ? sub.next() : root.createFolder(subfolder);
+    }
     var bytes = Utilities.base64Decode(base64Data);
     var blob = Utilities.newBlob(bytes, mimeType || 'application/pdf', fileName);
     var file = folder.createFile(blob);
@@ -64,7 +69,7 @@ function doPost(e) {
 
     // Drive PDF yükleme
     if (body.action === 'uploadToDrive') {
-      var result = uploadFileToDrive(body.base64, body.filename, body.mimeType);
+      var result = uploadFileToDrive(body.base64, body.filename, body.mimeType, body.subfolder || '');
       if (result.success && body.requestId) {
         PropertiesService.getScriptProperties().setProperty('drive_' + body.requestId, JSON.stringify(result));
       }

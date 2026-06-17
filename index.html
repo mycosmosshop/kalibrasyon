@@ -144,7 +144,7 @@ const e = React.createElement;
 // === Google Drive PDF Yükleme (GAS üzerinden) ===
 let _gasUrl = '';
 
-async function uploadToDrive(file) {
+async function uploadToDrive(file, subfolder) {
   if (!_gasUrl) throw new Error('GAS Servis URL ayarlanmamış (Ayarlar → Servis URL)');
   const reqId = 'kpdf_' + Date.now();
   const base64 = await new Promise((res, rej) => {
@@ -153,11 +153,10 @@ async function uploadToDrive(file) {
     r.onerror = rej;
     r.readAsDataURL(file);
   });
-  // POST (no-cors): GAS'a yükle, PropertiesService'e yaz
   await fetch(_gasUrl, {
     method: 'POST', mode: 'no-cors',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify({ action: 'uploadToDrive', requestId: reqId, filename: file.name, base64, mimeType: file.type || 'application/pdf' })
+    body: JSON.stringify({ action: 'uploadToDrive', requestId: reqId, filename: file.name, base64, mimeType: file.type || 'application/pdf', subfolder: subfolder || '' })
   });
   // GET ile sonucu oku (GAS ContentService GET → CORS destekler)
   for (let i = 0; i < 20; i++) {
@@ -3016,7 +3015,8 @@ const CalibrationForm = ({ isOpen, onClose, onSave, instrumentId, instruments, r
         if (_gasUrl) {
             toastService.info('PDF Google Drive\'a yükleniyor...');
             try {
-                const result = await uploadToDrive(file);
+                const subfolder = instrument ? instrument.name : '';
+                const result = await uploadToDrive(file, subfolder);
                 setFormData(prev => ({
                     ...prev,
                     reportFile: { name: file.name, driveFileId: result.fileId, driveUrl: result.driveUrl, previewUrl: result.previewUrl }
