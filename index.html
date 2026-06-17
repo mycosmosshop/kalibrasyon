@@ -146,38 +146,21 @@ let _gasUrl = '';
 
 async function uploadToDrive(file, subfolder) {
   if (!_gasUrl) throw new Error('GAS Servis URL ayarlanmamış (Ayarlar → Servis URL)');
-  const reqId = 'kpdf_' + Date.now();
   const base64 = await new Promise((res, rej) => {
     const r = new FileReader();
     r.onload = ev => res(ev.target.result.split(',')[1]);
     r.onerror = rej;
     r.readAsDataURL(file);
   });
-  console.log('[drive] POST gönderiliyor reqId:', reqId, 'dosya:', file.name, Math.round(file.size/1024)+'KB');
-  await fetch(_gasUrl, {
-    method: 'POST', mode: 'no-cors',
+  const resp = await fetch(_gasUrl, {
+    method: 'POST',
     headers: { 'Content-Type': 'text/plain' },
-    body: JSON.stringify({ action: 'uploadToDrive', requestId: reqId, filename: file.name, base64, mimeType: file.type || 'application/pdf', subfolder: subfolder || '' })
+    body: JSON.stringify({ action: 'uploadToDrive', filename: file.name, base64, mimeType: file.type || 'application/pdf', subfolder: subfolder || '' })
   });
-  console.log('[drive] POST tamam, polling...');
-  for (let i = 0; i < 20; i++) {
-    await new Promise(r => setTimeout(r, i === 0 ? 4000 : 3000));
-    try {
-      const resp = await fetch(_gasUrl + '?action=getResult&id=' + reqId, { cache: 'no-store' });
-      console.log('[drive] poll', i+1, 'status:', resp.status);
-      if (resp.ok) {
-        const data = await resp.json();
-        console.log('[drive] poll data:', JSON.stringify(data).substring(0, 300));
-        if (data.success) return data;
-        if (data.error) throw new Error('GAS hatası: ' + data.error);
-      }
-    } catch (err) {
-      console.warn('[drive] poll hata:', err.message);
-      if (!err.message.startsWith('GAS hatası') && (err.message.includes('fetch') || err.message.includes('network') || err.message.includes('Failed'))) continue;
-      throw err;
-    }
-  }
-  throw new Error('Drive yükleme zaman aşımı. GAS Yürütmeler sekmesini kontrol edin.');
+  if (!resp.ok) throw new Error('GAS HTTP ' + resp.status);
+  const data = await resp.json();
+  if (!data.success) throw new Error(data.error || 'Drive yükleme başarısız');
+  return data;
 }
 // ===================================================
 
