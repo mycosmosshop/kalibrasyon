@@ -666,7 +666,7 @@ const App = () => {
         locations: ["Laboratuvar", "Atölye", "Saha"],
         emailNotificationsEnabled: false,
         notificationEmail: '',
-        serviceUrl: 'https://calibration-mailer.onrender.com',
+        serviceUrl: '',
         toList: '',
         scheduleEnabled: false,
         scheduleTime: '09:00',
@@ -3596,7 +3596,7 @@ const SettingsModal = ({ isOpen, onClose, settings, onSave, instruments, getInst
                         )
                     ),
                     e("div", { className: `grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 transition-all duration-300 ${localSettings.scheduleEnabled ? 'opacity-100' : 'opacity-50'}` },
-                        e(FormInput, { label: "Servis URL", id: "serviceUrl", name: "serviceUrl", value: localSettings.serviceUrl, onChange: handleChange, disabled: !localSettings.scheduleEnabled, placeholder: "https://...render.com" }),
+                        e(FormInput, { label: "Servis URL (GAS /exec)", id: "serviceUrl", name: "serviceUrl", value: localSettings.serviceUrl, onChange: handleChange, placeholder: "https://script.google.com/macros/s/.../exec" }),
                         e(FormInput, { label: "Yönetici Anahtarı", id: "adminKey", name: "adminKey", type: "password", value: localSettings.adminKey, onChange: handleChange, disabled: !localSettings.scheduleEnabled }),
                         e(FormInput, { label: "Alıcı Listesi (virgülle ayırın)", id: "toList", name: "toList", value: localSettings.toList, onChange: handleChange, disabled: !localSettings.scheduleEnabled }),
                         e(FormInput, { label: "Raporlama Zamanı", id: "scheduleTime", name: "scheduleTime", type: "time", value: localSettings.scheduleTime, onChange: handleChange, disabled: !localSettings.scheduleEnabled }),
