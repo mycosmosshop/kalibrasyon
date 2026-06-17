@@ -721,8 +721,8 @@ const App = () => {
 
     // Drive bridge: ayarlardaki GAS URL hazır olduğunda köprüyü başlat
     useEffect(() => {
-        if (localSettings.serviceUrl) initDriveBridge(localSettings.serviceUrl);
-    }, [localSettings.serviceUrl]);
+        if (settings.serviceUrl) initDriveBridge(settings.serviceUrl);
+    }, [settings.serviceUrl]);
 
     useEffect(() => {
         const updateCheckInterval = setInterval(() => {
