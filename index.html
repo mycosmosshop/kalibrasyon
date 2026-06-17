@@ -3024,13 +3024,18 @@ const CalibrationForm = ({ isOpen, onClose, onSave, instrumentId, instruments, r
             } catch (err) {
                 toastService.error('Drive hatası: ' + err.message);
             }
-        } else {
-            // GAS ayarlanmamışsa eski yöntem (base64 localStorage)
+        } else if (file.size <= 300 * 1024) {
+            // 300KB altı → base64 localStorage (eski yöntem)
             const base64 = await fileToBase64(file);
             setFormData(prev => ({
                 ...prev,
                 reportFile: { name: file.name, type: file.type, data: base64 }
             }));
+        } else {
+            // Büyük dosya ve Drive hazır değil → uyar
+            toastService.error(`PDF çok büyük (${(file.size/1024).toFixed(0)}KB). Drive yüklemesi için GAS Servis URL\'sini Ayarlar\'dan girin ve GAS\'ı güncelleyin.`);
+            if (e.target) e.target.value = '';
+            return;
         }
         if (e.target) e.target.value = '';
     };
