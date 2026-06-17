@@ -70,7 +70,7 @@ function doPost(e) {
     // Drive PDF yükleme
     if (body.action === 'uploadToDrive') {
       var result = uploadFileToDrive(body.base64, body.filename, body.mimeType, body.subfolder || '');
-      if (result.success && body.requestId) {
+      if (body.requestId) {
         PropertiesService.getScriptProperties().setProperty('drive_' + body.requestId, JSON.stringify(result));
       }
       return _json(result);
