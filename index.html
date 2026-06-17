@@ -3002,7 +3002,8 @@ const CalibrationForm = ({ isOpen, onClose, onSave, instrumentId, instruments, r
     const handleFileChange = async (e) => {
         const file = e.target.files?.[0];
         if (!file) return;
-        if (_gasUrl) {
+        const gasUrl = _gasUrl || (() => { try { return JSON.parse(localStorage.getItem('settings') || '{}').serviceUrl || ''; } catch(_) { return ''; } })();
+        if (gasUrl) {
             toastService.info('PDF Google Drive\'a yükleniyor...');
             try {
                 const subfolder = instrument ? instrument.name : '';
