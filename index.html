@@ -1690,6 +1690,10 @@ return instruments.map(instrument => {
                 isOpen: isCalibrationFormOpen,
                 onClose: () => { setCalibrationFormOpen(false); setInstrumentIdForNewRecord(null); setEditingRecord(null); },
                 onSave: handleSaveRecord,
+                onUpdateRecord: (updated) => {
+                    setCalibrationRecords(prev => prev.map(r => r.id === updated.id ? updated : r));
+                    setEditingRecord(prev => prev && prev.id === updated.id ? updated : prev);
+                },
                 instrumentId: instrumentIdForNewRecord,
                 instruments: instruments,
                 record: editingRecord,
@@ -2943,7 +2947,7 @@ const InstrumentForm = ({ isOpen, onClose, onSave, instrumentId, instruments, se
     );
 };
 
-const CalibrationForm = ({ isOpen, onClose, onSave, instrumentId, instruments, record, calibrationRecords }) => {
+const CalibrationForm = ({ isOpen, onClose, onSave, onUpdateRecord, instrumentId, instruments, record, calibrationRecords }) => {
     const instrument = useMemo(() => {
         return instrumentId ? instruments.find(i => i.id === instrumentId) : null;
     }, [instrumentId, instruments]);
@@ -3071,10 +3075,18 @@ const CalibrationForm = ({ isOpen, onClose, onSave, instrumentId, instruments, r
         }
     };
 
+    // Mevcut kayıttan raporu anında kalıcı kaldır (Kaydet beklemeden)
+    const persistRemoval = () => {
+        if (record && onUpdateRecord) {
+            onUpdateRecord({ ...formData, reportFile: null, id: record.id, instrumentId: instrument.id, result: derivedValues.result || record.result });
+        }
+    };
+
     const doRemoveLink = () => {
         setFormData(prev => ({...prev, reportFile: null}));
         if (fileInputRef.current) fileInputRef.current.value = "";
         setShowRemoveDialog(false);
+        persistRemoval();
     };
 
     const doDeleteFromDrive = async () => {
@@ -3091,6 +3103,7 @@ const CalibrationForm = ({ isOpen, onClose, onSave, instrumentId, instruments, r
         }
         setFormData(prev => ({...prev, reportFile: null}));
         if (fileInputRef.current) fileInputRef.current.value = "";
+        persistRemoval();
     };
     
     const handleSubmit = (e) => {
