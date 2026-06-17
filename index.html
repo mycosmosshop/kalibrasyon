@@ -1132,9 +1132,6 @@ return instruments.map(instrument => {
             return null;
         };
 
-        const headerRow = data[0].map(h => String(h).trim());
-        const rows = data.slice(1);
-    
         const headerMap = {
             'Cihaz ID': 'id', 'Cihaz Adı': 'name', 'Seri No': 'serialNumber', 'Model': 'model',
             'Konum': 'location', 'Departman': 'department', 'Kal. Aralığı (Ay)': 'calibrationInterval',
@@ -1149,7 +1146,19 @@ return instruments.map(instrument => {
             'Notlar': 'notes', 'Zimmetli Personel': 'assignedPersonnel',
             'Referans Cihaz Seri No': 'referenceInstrumentSerial'
         };
-    
+
+        // Başlık/antet satırlarını atla: headerMap ile eşleşen ilk satırı gerçek header kabul et
+        let headerRowIndex = 0;
+        for (let i = 0; i < Math.min(data.length, 15); i++) {
+            const candidate = data[i] || [];
+            if (candidate.some(cell => headerMap[String(cell == null ? '' : cell).trim()])) {
+                headerRowIndex = i;
+                break;
+            }
+        }
+        const headerRow = (data[headerRowIndex] || []).map(h => String(h == null ? '' : h).trim());
+        const rows = data.slice(headerRowIndex + 1);
+
         const newRecords = [];
         const newInstrumentsFromExcel = new Map();
         // Seri no geçersizse (N/A, -, boş) Cihaz ID'ye göre grupla → "N/A" seri no'lu cihazlar birbirini EZMESİN
