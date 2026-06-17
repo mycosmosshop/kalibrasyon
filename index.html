@@ -163,6 +163,18 @@ async function uploadToDrive(file, subfolder) {
   if (!data.success) throw new Error(data.error || 'Drive yükleme başarısız');
   return data;
 }
+
+async function deleteFromDrive(fileId) {
+  const gasUrl = _gasUrl || (() => { try { return JSON.parse(localStorage.getItem('settings') || '{}').serviceUrl || ''; } catch(_) { return ''; } })();
+  if (!gasUrl || !fileId) return { success: false, error: 'GAS URL veya dosya ID yok' };
+  const resp = await fetch(gasUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain' },
+    body: JSON.stringify({ action: 'deleteFromDrive', fileId })
+  });
+  if (!resp.ok) throw new Error('GAS HTTP ' + resp.status);
+  return await resp.json();
+}
 // ===================================================
 
 let ai = null;
@@ -3048,7 +3060,20 @@ const CalibrationForm = ({ isOpen, onClose, onSave, instrumentId, instruments, r
         if (e.target) e.target.value = '';
     };
 
-    const handleFileRemove = () => {
+    const handleFileRemove = async () => {
+        const rf = formData.reportFile;
+        if (rf && rf.driveFileId) {
+            const alsoDelete = window.confirm("Bu raporu Google Drive'dan da silmek istiyor musunuz?\n\nEvet: Drive'dan kalıcı silinir.\nHayır: Sadece bu kayıttan bağlantı kaldırılır, Drive'da kalır.");
+            if (alsoDelete) {
+                try {
+                    const res = await deleteFromDrive(rf.driveFileId);
+                    if (res.success) toastService.success("Rapor Drive'dan silindi ✓");
+                    else toastService.error("Drive silme hatası: " + (res.error || 'bilinmiyor'));
+                } catch (err) {
+                    toastService.error("Drive silme hatası: " + err.message);
+                }
+            }
+        }
         setFormData(prev => ({...prev, reportFile: null}));
         if(fileInputRef.current) {
             fileInputRef.current.value = "";

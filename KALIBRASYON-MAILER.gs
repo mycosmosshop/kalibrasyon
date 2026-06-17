@@ -76,6 +76,11 @@ function doPost(e) {
       return _json(result);
     }
 
+    // Drive PDF silme
+    if (body.action === 'deleteFromDrive') {
+      return _json(deleteFileFromDrive(body.fileId));
+    }
+
     var toList = body.toList || body.to || [];
     if (typeof toList === 'string') toList = toList.split(',');
     toList = toList.map(function (s) { return String(s).trim(); }).filter(Boolean);
