@@ -2567,6 +2567,18 @@ const InstrumentDetailView = ({ instrument, records, onBack, onEditInstrument, o
 };
 
 const AllCalibrationsView = ({ records, instruments, onEditRecord, onDeleteRecord, onBulkDelete, onBulkEdit, initialFilter }) => {
+    const openReport = (reportFile) => {
+        if (!reportFile) return;
+        if (reportFile.previewUrl) { window.open(reportFile.previewUrl, '_blank'); return; }
+        if (reportFile.driveUrl) { window.open(reportFile.driveUrl, '_blank'); return; }
+        if (reportFile.data) {
+            const link = document.createElement('a');
+            link.href = reportFile.data; link.download = reportFile.name || 'rapor.pdf';
+            document.body.appendChild(link); link.click(); document.body.removeChild(link);
+            return;
+        }
+        toastService.error('Rapor dosyası bulunamadı.');
+    };
     const [filters, setFilters] = useState({ searchTerm: '', result: '' });
     const [columns, setColumns] = useLocalStorage('allCalibrationsTableColumns', ALL_CALIBRATIONS_COLUMNS);
     const [isViewSettingsOpen, setViewSettingsOpen] = useState(false);
@@ -2748,6 +2760,7 @@ const AllCalibrationsView = ({ records, instruments, onEditRecord, onDeleteRecor
                             visibleColumns.map(col => (
                                 e(SortableHeader, { key: col.key, name: col.key, sortConfig: sortConfig, requestSort: requestSort }, col.label)
                             )),
+                            e("th", { className: "p-3 text-center" }, "Rapor"),
                             e("th", { className: "p-3 text-right" }, "İşlemler")
                         )
                     ),
@@ -2768,6 +2781,11 @@ const AllCalibrationsView = ({ records, instruments, onEditRecord, onDeleteRecor
                                          record[col.key] ?? ''
                                     )
                                 )),
+                                e("td", { className: "p-3 text-center" },
+                                    record.reportFile
+                                        ? e("button", { onClick: () => openReport(record.reportFile), title: "Raporu Görüntüle (" + (record.reportFile.name || 'PDF') + ")", className: "p-1.5 text-red-500 hover:text-red-700 rounded-full hover:bg-red-50 dark:hover:bg-red-900/30" }, e(DocumentArrowDownIcon, { className: "w-5 h-5" }))
+                                        : e("span", { className: "text-slate-300 dark:text-slate-600" }, "—")
+                                ),
                                 e("td", { className: "p-3" },
                                      e("div", { className: "flex items-center justify-end gap-1" },
                                         e("button", { onClick: () => onEditRecord(record), title: "Düzenle", className: "p-1.5 text-slate-500 hover:text-sky-600 dark:hover:text-sky-400 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700" }, e(PencilIcon, { className: "w-4 h-4" })),
@@ -2777,7 +2795,7 @@ const AllCalibrationsView = ({ records, instruments, onEditRecord, onDeleteRecor
                             )
                         )) : (
                             e("tr", {},
-                                e("td", { colSpan: visibleColumns.length + 2, className: "text-center p-8 text-slate-500" },
+                                e("td", { colSpan: visibleColumns.length + 3, className: "text-center p-8 text-slate-500" },
                                     "Kayıt bulunamadı."
                                 )
                             )
@@ -3003,7 +3021,6 @@ const CalibrationForm = ({ isOpen, onClose, onSave, instrumentId, instruments, r
         const file = e.target.files?.[0];
         if (!file) return;
         const gasUrl = _gasUrl || (() => { try { return JSON.parse(localStorage.getItem('settings') || '{}').serviceUrl || ''; } catch(_) { return ''; } })();
-        console.error('[PDF-DEBUG] dosya=' + file.name + ' boyut=' + file.size + ' gasUrl=' + (gasUrl || 'BOŞ'));
         if (gasUrl) {
             toastService.info('PDF Google Drive\'a yükleniyor...');
             try {
