@@ -29,14 +29,6 @@
       .then(function(r){ if(r.error) console.warn('[kalib-sync] push', r.error.message); else console.log('[kalib-sync] kaydedildi'); }); }
   function schedulePush(){ if(_applying) return; _lastEdit=Date.now(); clearTimeout(_pushTimer); _pushTimer=setTimeout(pushNow, 1500); }
 
-  function banner(){ if(document.getElementById('kalibSyncBanner')) return;
-    var b=document.createElement('div'); b.id='kalibSyncBanner';
-    b.style.cssText='position:fixed;bottom:16px;right:16px;z-index:2147483647;background:#0288d1;color:#fff;padding:10px 14px;border-radius:10px;font:600 14px sans-serif;box-shadow:0 4px 16px rgba(0,0,0,.35);cursor:pointer';
-    b.textContent='🔄 Yeni kalibrasyon verisi geldi — görmek için tıkla';
-    b.onclick=function(){ location.reload(); };
-    (document.body||document.documentElement).appendChild(b);
-  }
-
   function subscribe(){
     sb.channel('kalib_sync_rt')
       .on('postgres_changes', {event:'*', schema:'public', table:'supplier_sync', filter:'id=eq.'+ROW_ID}, function(p){
