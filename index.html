@@ -3522,7 +3522,9 @@ const DataImportModal = ({ isOpen, onClose, onImport }) => {
     const [file, setFile] = useState(null);
     const [error, setError] = useState('');
     const [isLoading, setIsLoading] = useState(false);
+    const [mode, setMode] = useState('standard');
     const fileInputRef = useRef(null);
+    const fileInputRefSM = useRef(null);
 
     const handleFileChange = (e) => {
         if (e.target.files && e.target.files.length > 0) {
@@ -3538,12 +3540,15 @@ const DataImportModal = ({ isOpen, onClose, onImport }) => {
         setError('');
         setIsLoading(false);
         if (fileInputRef.current) fileInputRef.current.value = "";
+        if (fileInputRefSM.current) fileInputRefSM.current.value = "";
     };
 
     const handleClose = () => {
         resetState();
         onClose();
     };
+
+    const handleModeChange = (newMode) => { setMode(newMode); resetState(); };
 
     const handleImport = () => {
         if (!file) {
@@ -3579,6 +3584,59 @@ const DataImportModal = ({ isOpen, onClose, onImport }) => {
         reader.readAsBinaryString(file);
     };
 
+    const handleSMImport = () => {
+        if (!file) { setError('Lütfen Şerit Metre zimmet listesi Excel dosyasını seçin.'); return; }
+        setIsLoading(true);
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+            try {
+                const bstr = evt.target.result;
+                const wb = XLSX.read(bstr, { type: 'binary', cellDates: true });
+                const wsName = wb.SheetNames.find(n => /sayfa2/i.test(n)) || wb.SheetNames[wb.SheetNames.length - 1];
+                const ws = wb.Sheets[wsName];
+                const raw = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, dateNF: 'yyyy-mm-dd' });
+                let headerIdx = 4;
+                for (let i = 0; i < Math.min(raw.length, 10); i++) {
+                    const r = raw[i] || [];
+                    if (r.some(c => c && String(c).toUpperCase().includes('DOĞRULAMA'))) { headerIdx = i; break; }
+                }
+                const dataRows = raw.slice(headerIdx + 1).filter(r => r && r[1] != null && String(r[1]).trim() !== '');
+                if (dataRows.length === 0) throw new Error("Sayfa2'de geçerli veri satırı bulunamadı.");
+                const stdHeaders = [
+                    'Cihaz ID', 'Cihaz Adı', 'Seri No', 'Model', 'Konum', 'Departman',
+                    'Kal. Aralığı (Ay)', 'İzin Verilen Sapma', 'Birim', 'Ölçüm Aralığı', 'Çözünürlük', 'Procedür',
+                    'Son Kalibrasyon Tarihi', 'Kayıt Tipi', 'Tarih', 'Teknisyen', 'Firma', 'Rapor No',
+                    'Sapma', 'Belirsizlik', 'Notlar', 'Zimmetli Personel', 'Referans Cihaz Seri No'
+                ];
+                const rows = [stdHeaders];
+                dataRows.forEach(r => {
+                    const no = parseInt(String(r[1] || '').trim(), 10);
+                    if (isNaN(no)) return;
+                    const id = 'SM-' + String(no).padStart(3, '0');
+                    const sorumlu = String(r[2] || '').trim();
+                    const bolum = String(r[4] || '').trim();
+                    const dogTarih = r[5] ? String(r[5]).trim() : '';
+                    const kullanim = String(r[3] || '').trim();
+                    rows.push([
+                        id, 'Şerit Metre', id, '', bolum, bolum,
+                        6, 1, 'mm', '0-5000 mm', '1 mm', '',
+                        dogTarih, 'Doğrulama', dogTarih, sorumlu, '', '',
+                        0, 0, kullanim, sorumlu, ''
+                    ]);
+                });
+                if (rows.length < 2) throw new Error('İşlenecek geçerli satır bulunamadı.');
+                onImport(rows);
+                handleClose();
+            } catch (e) {
+                setError(`Dosya okunurken hata: ${e.message}`);
+            } finally {
+                setIsLoading(false);
+            }
+        };
+        reader.onerror = () => { setError('Dosya okunamadı.'); setIsLoading(false); };
+        reader.readAsBinaryString(file);
+    };
+
     const handleDownloadTemplate = () => {
         const headers = [
             'Cihaz ID', 'Cihaz Adı', 'Seri No', 'Model', 'Konum', 'Departman', 'Kal. Aralığı (Ay)', 'İzin Verilen Sapma', 'Birim', 'Ölçüm Aralığı', 'Çözünürlük', 'Prosedür', 'Son Kalibrasyon Tarihi',
@@ -3598,32 +3656,65 @@ const DataImportModal = ({ isOpen, onClose, onImport }) => {
         XLSX.writeFile(wb, 'Kalibrasyon_İçe_Aktarma_Şablonu.xlsx');
     };
 
+    const tabCls = (m) => m === mode
+        ? "px-4 py-2 text-sm font-semibold rounded-t-md border-b-2 border-sky-600 text-sky-700 dark:text-sky-300 bg-sky-50 dark:bg-sky-900/30"
+        : "px-4 py-2 text-sm font-semibold rounded-t-md border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700/50";
+
     return (
         e(Modal, { isOpen: isOpen, onClose: handleClose, title: "Veri İçe Aktar (Cihaz + Kayıt)" },
             e("div", { className: "space-y-4" },
-                e("p", { className: "text-sm text-slate-600 dark:text-slate-300" },
-                    "Toplu olarak yeni cihazlar ve kalibrasyon kayıtları eklemek için bir Excel (.xlsx) dosyası yükleyin. Sistem, Seri Numarasına göre bir cihazın var olup olmadığını kontrol eder. Cihaz yoksa oluşturur; varsa, yeni kaydı mevcut cihaza ekler. Başlamadan önce şablonu indirip doldurabilirsiniz. Cihaz resimleri bu yöntemle içe aktarılamaz."
+                e("div", { className: "flex gap-1 border-b border-slate-200 dark:border-slate-700 -mx-1" },
+                    e("button", { type: "button", onClick: () => handleModeChange('standard'), className: tabCls('standard') }, "Standart Excel"),
+                    e("button", { type: "button", onClick: () => handleModeChange('sritMetre'), className: tabCls('sritMetre') }, "Şerit Metre Listesi")
                 ),
 
-                e("button", { onClick: handleDownloadTemplate, className: "inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-green-700 bg-green-100 dark:bg-green-900/50 dark:text-green-300 rounded-md hover:bg-green-200 dark:hover:bg-green-800 transition-colors" },
-                    e(DocumentArrowDownIcon, {}), " Şablon İndir"
+                mode === 'standard' && e(React.Fragment, null,
+                    e("p", { className: "text-sm text-slate-600 dark:text-slate-300" },
+                        "Toplu olarak yeni cihazlar ve kalibrasyon kayıtları eklemek için bir Excel (.xlsx) dosyası yükleyin. Sistem, Seri Numarasına göre bir cihazın var olup olmadığını kontrol eder. Cihaz yoksa oluşturur; varsa, yeni kaydı mevcut cihaza ekler. Başlamadan önce şablonu indirip doldurabilirsiniz. Cihaz resimleri bu yöntemle içe aktarılamaz."
+                    ),
+                    e("button", { onClick: handleDownloadTemplate, className: "inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-green-700 bg-green-100 dark:bg-green-900/50 dark:text-green-300 rounded-md hover:bg-green-200 dark:hover:bg-green-800 transition-colors" },
+                        e(DocumentArrowDownIcon, {}), " Şablon İndir"
+                    ),
+                    e("div", { className: "pt-2" },
+                        e(FormInput, {
+                            ref: fileInputRef,
+                            id: "excel-file-import",
+                            type: "file",
+                            label: "Excel Dosyası (.xlsx)",
+                            accept: ".xlsx, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            onChange: handleFileChange
+                        })
+                    )
                 ),
 
-                e("div", { className: "pt-4 mt-4 border-t border-slate-200 dark:border-slate-700" },
-                    e(FormInput, {
-                        ref: fileInputRef,
-                        id: "excel-file-import",
-                        type: "file",
-                        label: "Excel Dosyası (.xlsx)",
-                        accept: ".xlsx, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        onChange: handleFileChange
-                    })
+                mode === 'sritMetre' && e(React.Fragment, null,
+                    e("div", { className: "rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 p-3 text-sm text-amber-800 dark:text-amber-200 space-y-1" },
+                        e("p", { className: "font-semibold" }, "Şerit Metre Zimmet Takip Listesi"),
+                        e("p", null, "FR72 formatındaki Excel dosyasını (Sayfa2) yükleyin. Her şerit metre ",
+                            e("span", { className: "font-mono bg-amber-100 dark:bg-amber-800/40 px-1 rounded" }, "SM-001"),
+                            " gibi ID ile eklenir. Doğrulama tarihi ve zimmetli personel otomatik aktarılır."
+                        )
+                    ),
+                    e("div", { className: "pt-2" },
+                        e(FormInput, {
+                            ref: fileInputRefSM,
+                            id: "excel-file-import-sm",
+                            type: "file",
+                            label: "Şerit Metre Excel Dosyası (.xlsx)",
+                            accept: ".xlsx, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            onChange: handleFileChange
+                        })
+                    )
                 ),
 
                 error && e("p", { className: "text-red-500 text-sm" }, error),
                 e("div", { className: "flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-700" },
                     e("button", { type: "button", onClick: handleClose, className: "px-4 py-2 rounded-md text-slate-700 bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600 font-semibold transition-colors" }, "İptal"),
-                    e("button", { onClick: handleImport, disabled: isLoading || !file, className: "px-4 py-2 rounded-md text-white bg-sky-600 hover:bg-sky-700 font-semibold transition-colors disabled:bg-slate-400 disabled:cursor-not-allowed flex items-center gap-2" },
+                    e("button", {
+                        onClick: mode === 'sritMetre' ? handleSMImport : handleImport,
+                        disabled: isLoading || !file,
+                        className: "px-4 py-2 rounded-md text-white bg-sky-600 hover:bg-sky-700 font-semibold transition-colors disabled:bg-slate-400 disabled:cursor-not-allowed flex items-center gap-2"
+                    },
                         isLoading ? e(React.Fragment, null, e(Spinner, {}), " İçe Aktarılıyor...") : 'İçe Aktar'
                     )
                 )
