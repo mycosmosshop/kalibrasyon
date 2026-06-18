@@ -688,6 +688,16 @@ const App = () => {
         backupOnExit: false,
     });
 
+    // Yeni bölümler eklendiğinde mevcut ayarlara birleştir (localStorage migration)
+    useEffect(() => {
+        const canonical = ["Kalite", "Üretim", "Ar-Ge", "Bakım", "Üretim Müdürü", "Ar-Ge Müdürü", "Kalite Müdürü", "CNC", "Üretim Sorumlusu", "Laminasyon", "Depo Ofis", "Vargel", "KP4", "Kalite Mühendisi", "Vardiya Amiri", "Yatay / Jet", "Sıcaklaminasyon / H Pres", "Depo", "Hizmetli", "Kalite Kontrol", "Bakımcı"];
+        const existing = settings.departments || [];
+        const missing = canonical.filter(d => !existing.includes(d));
+        if (missing.length > 0) {
+            setSettings(prev => ({ ...prev, departments: [...existing, ...missing] }));
+        }
+    }, []);
+
     const [currentView, setCurrentView] = useState('dashboard');
     const [allCalibrationsInitialFilter, setAllCalibrationsInitialFilter] = useState(null);
     const [instrumentListInitialFilter, setInstrumentListInitialFilter] = useState(null);
