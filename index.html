@@ -1954,6 +1954,30 @@ const Dashboard = ({ instrumentsWithStatus, calibrationRecords, onNavigate, onSh
             .slice(0, 10);
     }, [instrumentsWithStatus]);
 
+    const deviationItems = useMemo(() => {
+        return instrumentsWithStatus
+            .map(inst => {
+                const rec = calibrationRecords
+                    .filter(r => r.instrumentId === inst.id)
+                    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
+                if (!rec || (Number(rec.deviation) === 0 && Number(rec.uncertainty) === 0)) return null;
+                return {
+                    id: inst.id,
+                    name: inst.name,
+                    serialNumber: inst.serialNumber,
+                    date: rec.date,
+                    deviation: Number(rec.deviation) || 0,
+                    uncertainty: Number(rec.uncertainty) || 0,
+                    total: Math.abs(Number(rec.deviation) || 0) + (Number(rec.uncertainty) || 0),
+                    permissibleDeviation: Number(inst.permissibleDeviation) || 0,
+                    result: rec.result,
+                    recordType: rec.recordType,
+                };
+            })
+            .filter(Boolean)
+            .sort((a, b) => b.total - a.total);
+    }, [instrumentsWithStatus, calibrationRecords]);
+
     const instrumentChartRef = useRef(null);
     const instrumentChartInstanceRef = useRef(null);
     const recordChartRef = useRef(null);
@@ -2190,6 +2214,69 @@ const Dashboard = ({ instrumentsWithStatus, calibrationRecords, onNavigate, onSh
                     )
                 ) : (
                     e("p", { className: "text-center text-slate-500 dark:text-slate-400 py-8" }, "Tüm cihazların kalibrasyonları güncel. Harika iş!")
+                )
+            ),
+            deviationItems.length > 0 && e("div", { className: "bg-white dark:bg-slate-800 p-6 rounded-lg shadow-md" },
+                e("h2", { className: "text-xl font-semibold mb-4" }, "Sapma Bilgisi Olan Cihazlar"),
+                e("div", { className: "overflow-x-auto" },
+                    e("table", { className: "w-full text-left text-sm" },
+                        e("thead", null,
+                            e("tr", { className: "border-b dark:border-slate-700" },
+                                e("th", { className: "p-3 font-semibold text-slate-600 dark:text-slate-300" }, "Cihaz Adı"),
+                                e("th", { className: "p-3 font-semibold text-slate-600 dark:text-slate-300" }, "Seri No"),
+                                e("th", { className: "p-3 font-semibold text-slate-600 dark:text-slate-300 text-center" }, "Kayıt Tipi"),
+                                e("th", { className: "p-3 font-semibold text-slate-600 dark:text-slate-300 text-center" }, "Tarih"),
+                                e("th", { className: "p-3 font-semibold text-slate-600 dark:text-slate-300 text-center" }, "Sapma"),
+                                e("th", { className: "p-3 font-semibold text-slate-600 dark:text-slate-300 text-center" }, "Belirsizlik"),
+                                e("th", { className: "p-3 font-semibold text-slate-600 dark:text-slate-300 text-center" }, "Toplam"),
+                                e("th", { className: "p-3 font-semibold text-slate-600 dark:text-slate-300 text-center" }, "İzin Ver. Sap."),
+                                e("th", { className: "p-3 font-semibold text-slate-600 dark:text-slate-300 text-center" }, "Sonuç")
+                            )
+                        ),
+                        e("tbody", null,
+                            deviationItems.map(item => {
+                                const resultColor = item.result === CalibrationResult.COMPLIANT
+                                    ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300'
+                                    : item.result === CalibrationResult.NON_COMPLIANT
+                                    ? 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300'
+                                    : item.result === CalibrationResult.MARGINAL
+                                    ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300'
+                                    : 'bg-slate-100 text-slate-600';
+                                const resultLabel = item.result === CalibrationResult.COMPLIANT ? 'Uygun'
+                                    : item.result === CalibrationResult.NON_COMPLIANT ? 'Uygun Değil'
+                                    : item.result === CalibrationResult.MARGINAL ? 'Sınırda'
+                                    : '—';
+                                const totalColor = item.permissibleDeviation > 0 && item.total > item.permissibleDeviation
+                                    ? 'text-red-600 font-bold'
+                                    : item.permissibleDeviation > 0 && item.total > item.permissibleDeviation * 0.9
+                                    ? 'text-yellow-600 font-semibold'
+                                    : 'text-slate-700 dark:text-slate-200';
+                                return e("tr", {
+                                    key: item.id,
+                                    onClick: () => onShowDetail(item.id),
+                                    className: "border-b dark:border-slate-700/50 hover:bg-slate-50 dark:hover:bg-slate-700/50 cursor-pointer"
+                                },
+                                    e("td", { className: "p-3 font-medium" }, item.name),
+                                    e("td", { className: "p-3 text-slate-500 dark:text-slate-400 text-xs" }, item.serialNumber || '—'),
+                                    e("td", { className: "p-3 text-center" },
+                                        e("span", { className: `text-xs px-2 py-0.5 rounded-full ${item.recordType === RecordType.VERIFICATION ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300' : 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300'}` },
+                                            item.recordType === RecordType.VERIFICATION ? 'Doğrulama' : 'Kalibrasyon'
+                                        )
+                                    ),
+                                    e("td", { className: "p-3 text-center text-slate-500 dark:text-slate-400 text-xs" }, formatDateForDisplay(item.date)),
+                                    e("td", { className: "p-3 text-center font-mono" }, item.deviation.toFixed(4)),
+                                    e("td", { className: "p-3 text-center font-mono" }, item.uncertainty.toFixed(4)),
+                                    e("td", { className: `p-3 text-center font-mono ${totalColor}` }, item.total.toFixed(4)),
+                                    e("td", { className: "p-3 text-center text-slate-500 dark:text-slate-400" },
+                                        item.permissibleDeviation > 0 ? item.permissibleDeviation : '—'
+                                    ),
+                                    e("td", { className: "p-3 text-center" },
+                                        item.result ? e("span", { className: `text-xs font-semibold px-2 py-1 rounded-full ${resultColor}` }, resultLabel) : e("span", null, '—')
+                                    )
+                                );
+                            })
+                        )
+                    )
                 )
             )
         )
