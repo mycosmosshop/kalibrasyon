@@ -1572,22 +1572,14 @@ return instruments.map(instrument => {
             titC.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
             titC.border = allThin;
 
-            // ── Alt başlık D2:R2 ────────────────────────────────────────────────
-            ws.mergeCells('D2:R2');
+            // ── Alt başlık D2:R4 (3 boş satır birleştirildi) ────────────────────
+            ws.mergeCells('D2:R4');
             var subC = ws.getCell('D2');
             subC.value = 'MUAYENE/ÖLÇME/DENEY TEÇHİZATLARI KONTROL PLANI (' + new Date().getFullYear() + ')';
-            subC.font = { bold: true, color: { argb: 'FFFFFFFF' }, name: 'Arial', size: 10 };
+            subC.font = { bold: true, color: { argb: 'FFFFFFFF' }, name: 'Arial', size: 12 };
             subC.fill = midFill;
             subC.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
             subC.border = allThin;
-
-            // ── D3:R3 ve D4:R4 boş mavi ─────────────────────────────────────────
-            ['D3:R3', 'D4:R4'].forEach(function(range) {
-                ws.mergeCells(range);
-                var c = ws.getCell(range.split(':')[0]);
-                c.fill = midFill;
-                c.border = allThin;
-            });
 
             // ── Bilgi tablosu S-T=Etiket / U-V=Değer ────────────────────────────
             var sayfa = '1/' + (Math.ceil(list.length / 30) || 1);
@@ -1610,10 +1602,10 @@ return instruments.map(instrument => {
                 ws.mergeCells('U' + er + ':V' + er);
                 var val = ws.getCell('U' + er);
                 val.value = row[1];
-                val.font = { bold: true, color: { argb: 'FF1E3A5F' }, name: 'Arial', size: 9 };
-                val.fill = valFill;
+                val.font = { bold: true, color: { argb: 'FFFFFFFF' }, name: 'Arial', size: 9 };
+                val.fill = navyFill;
                 val.alignment = { horizontal: 'center', vertical: 'middle' };
-                val.border = allThin;
+                val.border = allMed;
             });
 
             // ── Sütun Başlıkları (satır 5) ───────────────────────────────────────
