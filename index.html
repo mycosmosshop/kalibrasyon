@@ -3425,12 +3425,11 @@ const CalibrationForm = ({ isOpen, onClose, onSave, onUpdateRecord, instrumentId
         technician: '', calibratingCompany: '', reportNumber: '', deviation: 0, uncertainty: 0,
         notes: '', recordType: RecordType.CALIBRATION,
         referenceInstrumentId: '', assignedPersonnel: '', reportFile: null,
-        corrections: null
+        corrections: null, uncertaintyIsManual: false
     };
 
     const [formData, setFormData] = useState(defaultFormState);
     const [autoUncertaintyInfo, setAutoUncertaintyInfo] = useState(null);
-    const [uncertaintyManual, setUncertaintyManual] = useState(false);
     const [showRemoveDialog, setShowRemoveDialog] = useState(false);
     const fileInputRef = useRef(null);
     
@@ -3446,11 +3445,9 @@ const CalibrationForm = ({ isOpen, onClose, onSave, onUpdateRecord, instrumentId
     
     useEffect(() => {
         if (record) {
-            setFormData(record);
-            setUncertaintyManual(record.uncertainty !== 0 && record.uncertainty != null && record.uncertainty !== '');
+            setFormData({ ...defaultFormState, ...record });
         } else {
             setFormData(defaultFormState);
-            setUncertaintyManual(false);
         }
     }, [record, isOpen]);
 
@@ -3473,8 +3470,8 @@ const CalibrationForm = ({ isOpen, onClose, onSave, onUpdateRecord, instrumentId
                 );
                 const roundedUncertainty = parseFloat(totalUncertainty.toPrecision(4));
 
-                if (!uncertaintyManual) {
-                    setFormData(prev => ({ ...prev, uncertainty: roundedUncertainty }));
+                if (!formData.uncertaintyIsManual) {
+                    setFormData(prev => ({ ...prev, uncertainty: roundedUncertainty, uncertaintyIsManual: false }));
                     setAutoUncertaintyInfo(`Oto. hesap: √(Ref. Belirsizlik² + (Çözünürlük / √3)²) = √(${lastRefUncertainty}² + (${resolutionValue.toPrecision(2)} / √3)²) ≈ ${roundedUncertainty}`);
                 } else {
                     setAutoUncertaintyInfo(`Manuel giriş aktif. Oto. değer ≈ ${roundedUncertainty} — otomatike dönmek için temizle`);
@@ -3485,7 +3482,7 @@ const CalibrationForm = ({ isOpen, onClose, onSave, onUpdateRecord, instrumentId
         } else {
             setAutoUncertaintyInfo(null);
         }
-    }, [formData.recordType, formData.referenceInstrumentId, instrument, instruments, calibrationRecords, uncertaintyManual]);
+    }, [formData.recordType, formData.referenceInstrumentId, formData.uncertaintyIsManual, instrument, instruments, calibrationRecords]);
     
     const derivedValues = useMemo(() => {
         if (!instrument) return { effectiveDeviation: null, result: null, displayedTotalDeviation: null };
@@ -3650,16 +3647,20 @@ const CalibrationForm = ({ isOpen, onClose, onSave, onUpdateRecord, instrumentId
                                 type: "number",
                                 step: "any",
                                 value: formData.uncertainty,
-                                onChange: (ev) => { setUncertaintyManual(true); handleChange(ev); }
+                                onChange: (ev) => {
+                                    const { name, value, type } = ev.target;
+                                    const isNumeric = type === 'number';
+                                    setFormData(prev => ({ ...prev, [name]: isNumeric ? parseFloat(value) || 0 : value, uncertaintyIsManual: true }));
+                                }
                             }),
                             autoUncertaintyInfo && (
                                 e("div", { className: "flex items-start gap-1.5 mt-1 text-xs text-slate-500 dark:text-slate-400" },
                                     e(InformationCircleIcon, { className: "w-4 h-4 flex-shrink-0 mt-0.5" }),
                                     e("div", { className: "flex-1" },
                                         e("p", {}, autoUncertaintyInfo),
-                                        uncertaintyManual && e("button", {
+                                        formData.uncertaintyIsManual && e("button", {
                                             type: "button",
-                                            onClick: () => setUncertaintyManual(false),
+                                            onClick: () => setFormData(prev => ({ ...prev, uncertaintyIsManual: false })),
                                             className: "text-sky-600 hover:underline mt-0.5"
                                         }, "↺ Otomatik hesaba dön")
                                     )
