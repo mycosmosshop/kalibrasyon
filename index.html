@@ -1974,7 +1974,7 @@ const Dashboard = ({ instrumentsWithStatus, calibrationRecords, onNavigate, onSh
                     recordType: rec.recordType,
                 };
             })
-            .filter(Boolean)
+            .filter(item => item && item.result === CalibrationResult.NON_COMPLIANT)
             .sort((a, b) => b.total - a.total);
     }, [instrumentsWithStatus, calibrationRecords]);
 
