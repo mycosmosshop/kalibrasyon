@@ -3430,6 +3430,7 @@ const CalibrationForm = ({ isOpen, onClose, onSave, onUpdateRecord, instrumentId
 
     const [formData, setFormData] = useState(defaultFormState);
     const [autoUncertaintyInfo, setAutoUncertaintyInfo] = useState(null);
+    const [uncertaintyManual, setUncertaintyManual] = useState(false);
     const [showRemoveDialog, setShowRemoveDialog] = useState(false);
     const fileInputRef = useRef(null);
     
@@ -3446,8 +3447,10 @@ const CalibrationForm = ({ isOpen, onClose, onSave, onUpdateRecord, instrumentId
     useEffect(() => {
         if (record) {
             setFormData(record);
+            setUncertaintyManual(record.uncertainty !== 0 && record.uncertainty != null && record.uncertainty !== '');
         } else {
             setFormData(defaultFormState);
+            setUncertaintyManual(false);
         }
     }, [record, isOpen]);
 
@@ -3457,28 +3460,32 @@ const CalibrationForm = ({ isOpen, onClose, onSave, onUpdateRecord, instrumentId
             const refInstrumentRecords = calibrationRecords
                 .filter(r => r.instrumentId === formData.referenceInstrumentId && r.recordType === RecordType.CALIBRATION)
                 .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-            
+
             const lastRefUncertainty = refInstrumentRecords[0]?.uncertainty;
             const currentInstrumentResolutionStr = instrument?.resolution || '';
             const resolutionValue = parseFloat(currentInstrumentResolutionStr.replace(/[^0-9.]/g, ''));
-            
+
             if (referenceInstrument && typeof lastRefUncertainty === 'number' && !isNaN(resolutionValue) && resolutionValue > 0) {
                 const resolutionUncertaintyComponent = resolutionValue / Math.sqrt(3);
                 const totalUncertainty = Math.sqrt(
-                    Math.pow(lastRefUncertainty, 2) + 
+                    Math.pow(lastRefUncertainty, 2) +
                     Math.pow(resolutionUncertaintyComponent, 2)
                 );
-                
                 const roundedUncertainty = parseFloat(totalUncertainty.toPrecision(4));
-                setFormData(prev => ({ ...prev, uncertainty: roundedUncertainty }));
-                setAutoUncertaintyInfo(`Oto. hesap: √(Ref. Belirsizlik² + (Çözünürlük / √3)²) = √(${lastRefUncertainty}² + (${resolutionValue.toPrecision(2)} / √3)²) ≈ ${roundedUncertainty}`);
+
+                if (!uncertaintyManual) {
+                    setFormData(prev => ({ ...prev, uncertainty: roundedUncertainty }));
+                    setAutoUncertaintyInfo(`Oto. hesap: √(Ref. Belirsizlik² + (Çözünürlük / √3)²) = √(${lastRefUncertainty}² + (${resolutionValue.toPrecision(2)} / √3)²) ≈ ${roundedUncertainty}`);
+                } else {
+                    setAutoUncertaintyInfo(`Manuel giriş aktif. Oto. değer ≈ ${roundedUncertainty} — otomatike dönmek için temizle`);
+                }
             } else {
-                 setAutoUncertaintyInfo('Otomatik hesaplama için referans cihazın belirsizliği veya bu cihazın çözünürlüğü bulunamadı.');
+                setAutoUncertaintyInfo('Otomatik hesaplama için referans cihazın belirsizliği veya bu cihazın çözünürlüğü bulunamadı.');
             }
         } else {
             setAutoUncertaintyInfo(null);
         }
-    }, [formData.recordType, formData.referenceInstrumentId, instrument, instruments, calibrationRecords]);
+    }, [formData.recordType, formData.referenceInstrumentId, instrument, instruments, calibrationRecords, uncertaintyManual]);
     
     const derivedValues = useMemo(() => {
         if (!instrument) return { effectiveDeviation: null, result: null, displayedTotalDeviation: null };
@@ -3636,19 +3643,26 @@ const CalibrationForm = ({ isOpen, onClose, onSave, onUpdateRecord, instrumentId
                         e(FormInput, { label: "Rapor No", id: "reportNumber", name: "reportNumber", value: formData.reportNumber, onChange: handleChange }),
                         e(FormInput, { label: "Sapma", id: "deviation", name: "deviation", type: "number", step: "any", value: formData.deviation, onChange: handleChange }),
                          e("div", {},
-                            e(FormInput, { 
-                                label: "Belirsizlik", 
-                                id: "uncertainty", 
-                                name: "uncertainty", 
-                                type: "number", 
-                                step: "any", 
-                                value: formData.uncertainty, 
-                                onChange: handleChange 
+                            e(FormInput, {
+                                label: "Belirsizlik",
+                                id: "uncertainty",
+                                name: "uncertainty",
+                                type: "number",
+                                step: "any",
+                                value: formData.uncertainty,
+                                onChange: (ev) => { setUncertaintyManual(true); handleChange(ev); }
                             }),
                             autoUncertaintyInfo && (
                                 e("div", { className: "flex items-start gap-1.5 mt-1 text-xs text-slate-500 dark:text-slate-400" },
                                     e(InformationCircleIcon, { className: "w-4 h-4 flex-shrink-0 mt-0.5" }),
-                                    e("p", {}, autoUncertaintyInfo)
+                                    e("div", { className: "flex-1" },
+                                        e("p", {}, autoUncertaintyInfo),
+                                        uncertaintyManual && e("button", {
+                                            type: "button",
+                                            onClick: () => setUncertaintyManual(false),
+                                            className: "text-sky-600 hover:underline mt-0.5"
+                                        }, "↺ Otomatik hesaba dön")
+                                    )
                                 )
                             )
                         )
