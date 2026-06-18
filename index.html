@@ -2654,14 +2654,14 @@ function printCorrectionTable(record, instrument) {
     var target = corr.mode !== 'read';
     var name = instrument ? instrument.name : (record.instrumentName || '');
     var serial = instrument ? (instrument.serialNumber || '') : '';
-    var colX = target ? ('İstenen Gerçek Değer (' + unit + ')') : ('Cihaz Göstergesi / Okunan (' + unit + ')');
-    var colY = target ? ('Cihaza Ayarla — Okunması Gereken (' + unit + ')') : ('Gerçek Değer (' + unit + ')');
-    var colD = target ? 'Fark (Ayar − Hedef)' : 'Düzeltme (Gerçek − Okunan)';
+    var colX = target ? ('Gerçek Değer (' + unit + ')') : ('Ekran Göstergesi / Okunan (' + unit + ')');
+    var colY = target ? ('Ekranda Görünmesi Gereken (' + unit + ')') : ('Gerçek Değer (' + unit + ')');
+    var colD = target ? 'Fark (Ekran − Gerçek)' : 'Düzeltme (Gerçek − Okunan)';
     var rowsHtml = gen.rows.map(function (r) {
         return '<tr><td class="x">' + corrFmt(r.x, dec) + (r.ext ? ' <span class="ext">ext</span>' : '') + '</td><td class="y">' + corrFmt(r.y, dec) + '</td><td>' + (r.diff >= 0 ? '+' : '') + corrFmt(r.diff, dec) + '</td><td>' + (r.pct >= 0 ? '+' : '') + r.pct.toFixed(2) + ' %</td></tr>';
     }).join('');
     var ptsHtml = (corr.points || []).filter(function (p) { return p.measured !== '' && p.actual !== ''; }).map(function (p) { return '<tr><td>' + p.measured + '</td><td>' + p.actual + '</td></tr>'; }).join('');
-    var usage = target ? 'Hedef (gerçek) değere ulaşmak için cihaza «Okunması Gereken» sütunundaki değeri ayarlayın.' : 'Cihaz «Okunan» değeri gösterdiğinde gerçek değer «Gerçek Değer» sütunundadır.';
+    var usage = target ? 'Parçanın gerçek değeri «Gerçek Değer» sütunundaki kadarsa, makine ekranında «Ekranda Görünmesi Gereken» değeri görünür. Ekran okuması bu bandın içindeyse parça uygundur.' : 'Makine ekranında «Okunan» değeri gördüğünüzde, gerçek değer «Gerçek Değer» sütunundadır.';
     var doc = '<!doctype html><html lang="tr"><head><meta charset="utf-8"><title>' + name + ' — Düzeltme Tablosu</title>' +
         '<style>body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:24px;}h1{font-size:18px;margin:0 0 4px;}.sub{font-size:12px;color:#555;margin:0 0 2px;}table{border-collapse:collapse;width:100%;margin-top:14px;font-size:12px;}th,td{border:1px solid #999;padding:5px 8px;text-align:right;}th{background:#f0f0f0;font-size:11px;}td.x{font-weight:bold;text-align:left;}td.y{font-weight:bold;color:#0369a1;}.ext{font-size:9px;background:#fde68a;color:#92400e;padding:0 3px;border-radius:3px;}.usage{margin-top:12px;font-size:12px;padding:8px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:4px;}.pts{margin-top:14px;width:auto;}.pts th,.pts td{padding:3px 10px;}.note{margin-top:12px;font-size:10px;color:#777;}@media print{button{display:none;}}</style></head><body>' +
         '<h1>' + name + ' — Düzeltme / Sapma Tablosu</h1>' +
@@ -2684,9 +2684,9 @@ const CorrectionTableView = ({ corr, instrument }) => {
     const unit = corr.unit || (instrument && instrument.unit) || '';
     const target = corr.mode !== 'read';
     if (gen.error) return e("div", { className: "text-sm text-slate-500 dark:text-slate-400 italic p-3 bg-slate-50 dark:bg-slate-900/40 rounded-lg" }, gen.error);
-    const colX = target ? `İstenen Gerçek Değer (${unit})` : `Cihaz Göstergesi / Okunan (${unit})`;
-    const colY = target ? `Cihaza Ayarla — Okunması Gereken (${unit})` : `Gerçek Değer (${unit})`;
-    const colD = target ? "Fark (Ayar − Hedef)" : "Düzeltme (Gerçek − Okunan)";
+    const colX = target ? `Gerçek Değer (${unit})` : `Ekran Göstergesi / Okunan (${unit})`;
+    const colY = target ? `Ekranda Görünmesi Gereken (${unit})` : `Gerçek Değer (${unit})`;
+    const colD = target ? "Fark (Ekran − Gerçek)" : "Düzeltme (Gerçek − Okunan)";
     return e("div", { className: "overflow-x-auto border border-slate-200 dark:border-slate-700 rounded-lg max-h-80 overflow-y-auto" },
         e("table", { className: "w-full text-sm text-right" },
             e("thead", { className: "bg-slate-100 dark:bg-slate-700/50 text-xs text-slate-600 dark:text-slate-300 sticky top-0" },
@@ -2734,8 +2734,8 @@ const CorrectionTableEditor = ({ value, instrument, onChange }) => {
             e("div", { className: "grid grid-cols-1 sm:grid-cols-2 gap-3" },
                 e(FormInput, { label: "Birim", id: "corrUnit", value: corr.unit, onChange: (ev) => set({ unit: ev.target.value }), placeholder: "N, °C, mm, bar..." }),
                 e(FormSelect, { label: "Kullanım Şekli", id: "corrMode", value: corr.mode, onChange: (ev) => set({ mode: ev.target.value }) },
-                    e("option", { value: "target" }, "Hedef değere ayarla (test/baskı cihazı)"),
-                    e("option", { value: "read" }, "Okunan değeri düzelt (ölçüm cihazı)")
+                    e("option", { value: "target" }, "Gerçek değer → Ekran (kabul bandı bul)"),
+                    e("option", { value: "read" }, "Ekran (okunan) → Gerçek değer")
                 )
             ),
             e("div", {},
@@ -2782,7 +2782,7 @@ const CorrectionTableModal = ({ isOpen, onClose, record, instrument }) => {
                 e("div", { className: "text-sm space-y-0.5" },
                     e("p", { className: "font-semibold text-base text-slate-800 dark:text-slate-100" }, instrument ? instrument.name : (record.instrumentName || '')),
                     e("p", { className: "text-slate-500 dark:text-slate-400" }, `Seri: ${instrument ? instrument.serialNumber : ''} · Rapor: ${record.reportNumber || '—'} · ${formatDateForDisplay(record.date)}`),
-                    e("p", { className: "text-slate-500 dark:text-slate-400" }, `Birim: ${corr.unit || '—'} · ${corr.mode === 'read' ? 'Okunan değeri düzelt' : 'Hedef değere ayarla'}`)
+                    e("p", { className: "text-slate-500 dark:text-slate-400" }, `Birim: ${corr.unit || '—'} · ${corr.mode === 'read' ? 'Ekran → Gerçek' : 'Gerçek → Ekran'}`)
                 ),
                 e("button", { type: "button", onClick: () => printCorrectionTable(record, instrument), className: "flex items-center gap-1.5 px-3 py-2 rounded-md bg-sky-600 text-white hover:bg-sky-700 text-sm font-semibold whitespace-nowrap" },
                     e(PrinterIcon, { className: "w-4 h-4" }), "Yazdır / Asılabilir")
