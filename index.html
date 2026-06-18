@@ -1647,21 +1647,20 @@ return instruments.map(instrument => {
             e(UpdateModal, { show: isUpdateAvailable, onUpdate: handleUpdate }),
             e(ToastContainer),
             e("header", { className: "bg-white dark:bg-slate-800 shadow-md p-4 flex justify-between items-center sticky top-0 z-40" },
-                e("div", { className: "flex items-center gap-4" },
-                     e(CompanyLogoIcon, { logo: settings.logo }),
-                    e("h1", { className: "text-xl md:text-2xl font-bold text-slate-800 dark:text-slate-100" }, settings.companyName)
+                e("div", { className: "flex items-center gap-3" },
+                    e(CompanyLogoIcon, { logo: settings.logo })
                 ),
                  e("nav", { className: "flex items-center gap-2 md:gap-4" },
                     e("button", { onClick: () => handleNavigation('dashboard'), className: `px-3 py-2 text-sm md:text-base rounded-md font-semibold transition-colors ${currentView === 'dashboard' ? 'bg-sky-100 text-sky-700 dark:bg-sky-900/50 dark:text-sky-300' : 'hover:bg-slate-100 dark:hover:bg-slate-700'}` }, "Gösterge Paneli"),
                     e("button", { onClick: () => handleNavigation('instruments'), className: `px-3 py-2 text-sm md:text-base rounded-md font-semibold transition-colors ${currentView === 'instruments' ? 'bg-sky-100 text-sky-700 dark:bg-sky-900/50 dark:text-sky-300' : 'hover:bg-slate-100 dark:hover:bg-slate-700'}` }, "Cihazlar"),
                     e("button", { onClick: () => handleNavigation('all_calibrations'), className: `px-3 py-2 text-sm md:text-base rounded-md font-semibold transition-colors ${currentView === 'all_calibrations' ? 'bg-sky-100 text-sky-700 dark:bg-sky-900/50 dark:text-sky-300' : 'hover:bg-slate-100 dark:hover:bg-slate-700'}` }, "Tüm Kayıtlar"),
-                    e("button", { 
-                        onClick: () => setCalendarOpen(true), 
+                    e("button", {
+                        onClick: () => setCalendarOpen(true),
                         title: "Takvim",
-                        className: `p-2 rounded-full text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors` 
+                        className: `p-2 rounded-xl text-sky-600 dark:text-sky-400 bg-sky-50 dark:bg-sky-900/20 hover:bg-sky-100 dark:hover:bg-sky-900/40 ring-1 ring-sky-200 dark:ring-sky-800 transition-all shadow-sm`
                     }, e(CalendarDaysIcon, {className: "w-5 h-5"}) ),
-                    e("button", { onClick: () => setSettingsOpen(true), title: "Ayarlar", className: "p-2 rounded-full text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors" },
-                        e(WrenchScrewdriverIcon, {})
+                    e("button", { onClick: () => setSettingsOpen(true), title: "Ayarlar", className: "p-2 rounded-xl text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 ring-1 ring-slate-200 dark:ring-slate-600 transition-all shadow-sm" },
+                        e(WrenchScrewdriverIcon, { className: "w-5 h-5" })
                     )
                 )
             ),
@@ -3602,7 +3601,6 @@ const SettingsModal = ({ isOpen, onClose, settings, onSave, instruments, getInst
                 e("div", { className: "p-4 border rounded-lg border-slate-300 dark:border-slate-600" },
                     e("h3", { className: "text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4" }, "Genel Ayarlar"),
                     e("div", { className: "grid grid-cols-1 md:grid-cols-2 gap-6" },
-                        e(FormInput, { label: "Firma Adı", id: "companyName", name: "companyName", value: localSettings.companyName, onChange: handleChange }),
                         e("div", {},
                              e("label", { className: "block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1" }, "Firma Logosu"),
                              e("div", { className: "flex items-center gap-4" },
@@ -3610,15 +3608,6 @@ const SettingsModal = ({ isOpen, onClose, settings, onSave, instruments, getInst
                                  e("input", { type: "file", onChange: handleLogoChange, accept: "image/*", className: "w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-sky-50 file:text-sky-700 hover:file:bg-sky-100 dark:file:bg-slate-700 dark:file:text-slate-300 dark:hover:file:bg-slate-600" })
                              )
                         ),
-                         e(FormInput, {
-                            label: "GenAI API Anahtarı",
-                            id: "genaiApiKey",
-                            name: "genaiApiKey",
-                            type: "password",
-                            value: genaiApiKey,
-                            onChange: (e) => setGenaiApiKey(e.target.value),
-                            placeholder: "API Anahtarını buraya yapıştırın"
-                        }),
                         e("div", {},
                            e("label", { htmlFor: "emailNotificationsEnabled", className: "flex items-center gap-3" },
                                 e("input", { type: "checkbox", id: "emailNotificationsEnabled", name: "emailNotificationsEnabled", checked: localSettings.emailNotificationsEnabled, onChange: handleChange, className: "h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500" }),
