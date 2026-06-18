@@ -1523,47 +1523,81 @@ return instruments.map(instrument => {
         const EC = (r, c) => XLSX.utils.encode_cell({ r, c });
         const addMerge = (rs, cs, re, ce) => merges.push({ s: { r: rs, c: cs }, e: { r: re, c: ce } });
 
-        const bdr = { top: { style: 'thin', color: { rgb: '000000' } }, bottom: { style: 'thin', color: { rgb: '000000' } }, left: { style: 'thin', color: { rgb: '000000' } }, right: { style: 'thin', color: { rgb: '000000' } } };
-        const bdrMed = { top: { style: 'medium', color: { rgb: '000000' } }, bottom: { style: 'medium', color: { rgb: '000000' } }, left: { style: 'medium', color: { rgb: '000000' } }, right: { style: 'medium', color: { rgb: '000000' } } };
-        const sHdrDark = { font: { bold: true, color: { rgb: 'FFFFFF' }, name: 'Arial', sz: 10 }, fill: { fgColor: { rgb: '1E3A5F' }, patternType: 'solid' }, alignment: { horizontal: 'center', vertical: 'center', wrapText: true }, border: bdr };
-        const sHdrMid  = { font: { bold: true, color: { rgb: 'FFFFFF' }, name: 'Arial', sz: 10 }, fill: { fgColor: { rgb: '2E5FA3' }, patternType: 'solid' }, alignment: { horizontal: 'center', vertical: 'center', wrapText: true }, border: bdr };
-        const sHdrInfo = { font: { bold: true, color: { rgb: '1E3A5F' }, name: 'Arial', sz: 9  }, fill: { fgColor: { rgb: 'DDEEFF' }, patternType: 'solid' }, alignment: { horizontal: 'right',  vertical: 'center' }, border: bdr };
-        const sLogo    = { font: { bold: true, color: { rgb: '1E3A5F' }, name: 'Arial', sz: 14 }, fill: { fgColor: { rgb: 'FFFFFF' }, patternType: 'solid' }, alignment: { horizontal: 'center', vertical: 'center' }, border: bdrMed };
-        const sColHdr  = { font: { bold: true, color: { rgb: 'FFFFFF' }, name: 'Arial', sz: 9  }, fill: { fgColor: { rgb: '4472C4' }, patternType: 'solid' }, alignment: { horizontal: 'center', vertical: 'center', wrapText: true }, border: bdr };
-        const sCellBase = (even) => ({ font: { name: 'Arial', sz: 9 }, fill: { fgColor: { rgb: even ? 'FFFFFF' : 'EEF4FF' }, patternType: 'solid' }, alignment: { horizontal: 'left', vertical: 'center' }, border: bdr });
-        const sCellCtr  = (even) => ({ ...sCellBase(even), alignment: { horizontal: 'center', vertical: 'center' } });
-        const sCellNum  = (even) => ({ ...sCellBase(even), alignment: { horizontal: 'center', vertical: 'center' } });
+        // Kenarlık stilleri
+        const bdrT = { top:{style:'thin',color:{rgb:'000000'}},bottom:{style:'thin',color:{rgb:'000000'}},left:{style:'thin',color:{rgb:'000000'}},right:{style:'thin',color:{rgb:'000000'}} };
+        const bdrM = { top:{style:'medium',color:{rgb:'1E3A5F'}},bottom:{style:'medium',color:{rgb:'1E3A5F'}},left:{style:'medium',color:{rgb:'1E3A5F'}},right:{style:'medium',color:{rgb:'1E3A5F'}} };
+        const bdrMT = { top:{style:'medium',color:{rgb:'1E3A5F'}},bottom:{style:'thin',color:{rgb:'1E3A5F'}},left:{style:'medium',color:{rgb:'1E3A5F'}},right:{style:'medium',color:{rgb:'1E3A5F'}} };
+        const bdrMB = { top:{style:'thin',color:{rgb:'1E3A5F'}},bottom:{style:'medium',color:{rgb:'1E3A5F'}},left:{style:'medium',color:{rgb:'1E3A5F'}},right:{style:'medium',color:{rgb:'1E3A5F'}} };
+        const bdrMid = { top:{style:'thin',color:{rgb:'1E3A5F'}},bottom:{style:'thin',color:{rgb:'1E3A5F'}},left:{style:'medium',color:{rgb:'1E3A5F'}},right:{style:'medium',color:{rgb:'1E3A5F'}} };
+
+        // Antet stilleri
+        // Logo: A1:C4 — koyu lacivert zemin, beyaz büyük yazı
+        const sLogo    = { font:{bold:true,color:{rgb:'FFFFFF'},name:'Arial',sz:16}, fill:{fgColor:{rgb:'1E3A5F'},patternType:'solid'}, alignment:{horizontal:'center',vertical:'center',wrapText:true}, border:bdrM };
+        const sLogoMT  = { font:{bold:true,color:{rgb:'FFFFFF'},name:'Arial',sz:16}, fill:{fgColor:{rgb:'1E3A5F'},patternType:'solid'}, alignment:{horizontal:'center',vertical:'center'}, border:bdrMT };
+        const sLogoMid = { font:{name:'Arial',sz:9}, fill:{fgColor:{rgb:'1E3A5F'},patternType:'solid'}, alignment:{horizontal:'center',vertical:'center'}, border:bdrMid };
+        const sLogoMB  = { font:{name:'Arial',sz:9}, fill:{fgColor:{rgb:'1E3A5F'},patternType:'solid'}, alignment:{horizontal:'center',vertical:'center'}, border:bdrMB };
+        // Başlık alanı: D1:R4
+        const sHdrTitle  = { font:{bold:true,color:{rgb:'FFFFFF'},name:'Arial',sz:11}, fill:{fgColor:{rgb:'1E3A5F'},patternType:'solid'}, alignment:{horizontal:'center',vertical:'center',wrapText:true}, border:bdrMT };
+        const sHdrSub    = { font:{bold:true,color:{rgb:'FFFFFF'},name:'Arial',sz:10}, fill:{fgColor:{rgb:'2E5FA3'},patternType:'solid'}, alignment:{horizontal:'center',vertical:'center',wrapText:true}, border:bdrMid };
+        const sHdrFill   = { font:{name:'Arial',sz:9},                                fill:{fgColor:{rgb:'2E5FA3'},patternType:'solid'}, alignment:{horizontal:'center',vertical:'center'}, border:bdrMid };
+        const sHdrFillB  = { font:{name:'Arial',sz:9},                                fill:{fgColor:{rgb:'2E5FA3'},patternType:'solid'}, alignment:{horizontal:'center',vertical:'center'}, border:bdrMB };
+        // Bilgi alanı: S1:V4 — soluk mavi, bold koyu lacivert
+        const sInfoT  = { font:{bold:true,color:{rgb:'1E3A5F'},name:'Arial',sz:9}, fill:{fgColor:{rgb:'D6E4F0'},patternType:'solid'}, alignment:{horizontal:'left',vertical:'center',indent:1}, border:bdrMT };
+        const sInfoM  = { font:{bold:true,color:{rgb:'1E3A5F'},name:'Arial',sz:9}, fill:{fgColor:{rgb:'D6E4F0'},patternType:'solid'}, alignment:{horizontal:'left',vertical:'center',indent:1}, border:bdrMid };
+        const sInfoB  = { font:{bold:true,color:{rgb:'1E3A5F'},name:'Arial',sz:9}, fill:{fgColor:{rgb:'D6E4F0'},patternType:'solid'}, alignment:{horizontal:'left',vertical:'center',indent:1}, border:bdrMB };
+        // Sütun başlıkları: satır 4
+        const sColHdr = { font:{bold:true,color:{rgb:'FFFFFF'},name:'Arial',sz:8}, fill:{fgColor:{rgb:'1F4E79'},patternType:'solid'}, alignment:{horizontal:'center',vertical:'center',wrapText:true}, border:bdrM };
+        // Veri hücreleri
+        const sCellBase = (e) => ({ font:{name:'Arial',sz:8}, fill:{fgColor:{rgb: e?'FFFFFF':'EDF3FF'},patternType:'solid'}, alignment:{horizontal:'left',vertical:'center'}, border:bdrT });
+        const sCellCtr  = (e) => ({ font:{name:'Arial',sz:8}, fill:{fgColor:{rgb: e?'FFFFFF':'EDF3FF'},patternType:'solid'}, alignment:{horizontal:'center',vertical:'center'}, border:bdrT });
+        const sCellNum  = (e) => ({ font:{name:'Arial',sz:8}, fill:{fgColor:{rgb: e?'FFFFFF':'EDF3FF'},patternType:'solid'}, alignment:{horizontal:'center',vertical:'center'}, border:bdrT });
         const sCellRes  = (result) => {
-            const rgb = result === CalibrationResult.COMPLIANT ? 'C6EFCE' : result === CalibrationResult.NON_COMPLIANT ? 'FFC7CE' : result === CalibrationResult.MARGINAL ? 'FFEB9C' : 'FFFFFF';
-            return { font: { bold: true, name: 'Arial', sz: 9 }, fill: { fgColor: { rgb }, patternType: 'solid' }, alignment: { horizontal: 'center', vertical: 'center' }, border: bdr };
+            const rgb = result === CalibrationResult.COMPLIANT ? '70AD47' : result === CalibrationResult.NON_COMPLIANT ? 'FF0000' : result === CalibrationResult.MARGINAL ? 'FFC000' : 'FFFFFF';
+            const txtRgb = result === CalibrationResult.NON_COMPLIANT ? 'FFFFFF' : '000000';
+            return { font:{bold:true,name:'Arial',sz:8,color:{rgb:txtRgb}}, fill:{fgColor:{rgb},patternType:'solid'}, alignment:{horizontal:'center',vertical:'center'}, border:bdrT };
         };
         const sCellStat = (status) => {
             const rgb = status === CalibrationStatus.OK ? 'C6EFCE' : status === CalibrationStatus.OVERDUE ? 'FFC7CE' : status === CalibrationStatus.DUE_SOON ? 'FFEB9C' : 'FFFFFF';
-            return { font: { bold: true, name: 'Arial', sz: 9 }, fill: { fgColor: { rgb }, patternType: 'solid' }, alignment: { horizontal: 'center', vertical: 'center' }, border: bdr };
+            return { font:{bold:true,name:'Arial',sz:8}, fill:{fgColor:{rgb},patternType:'solid'}, alignment:{horizontal:'center',vertical:'center'}, border:bdrT };
         };
 
         const setS = (r, c, v, t, s) => { ws[EC(r,c)] = { v: v === null || v === undefined ? '' : v, t: t || 's', s: s || {} }; };
         const setF = (r, c, f, s) => { ws[EC(r,c)] = { f, t: 'n', s: s || {} }; };
 
-        // --- Başlık: 4 satır ---
-        addMerge(0, 0, 3, 2);  setS(0, 0, 'SANİFOAM A.Ş.', 's', sLogo);
-        addMerge(0, 3, 0, 14); setS(0, 3, 'KALİTE YÖNETİM SİSTEMİ DOKÜMANTASYONU', 's', sHdrDark);
-        addMerge(0,15, 0, 17); setS(0,15, 'DOK NO.: PL12', 's', sHdrInfo);
-        addMerge(1, 3, 1, 14); setS(1, 3, 'MUAYENE/ÖLÇME/DENEY TEÇHİZATLARI KONTROL PLANI (' + new Date().getFullYear() + ')', 's', sHdrMid);
-        addMerge(1,15, 1, 17); setS(1,15, 'YAYIN TARİHİ: 18.12.2006', 's', sHdrInfo);
-        addMerge(2, 3, 2, 14); setS(2, 3, '', 's', sHdrMid);
-        addMerge(2,15, 2, 17); setS(2,15, 'REV. NO/TARİH: 10/12.12.2019', 's', sHdrInfo);
-        addMerge(3, 3, 3, 14); setS(3, 3, '', 's', sHdrMid);
-        addMerge(3,15, 3, 17); setS(3,15, 'SAYFA: 1/' + (Math.ceil(list.length / 30) || 1), 's', sHdrInfo);
+        // ── Antet: 4 satır (satır 0-3) ──────────────────────────────────────────
+        // Layout: A-C(0-2)=Logo | D-R(3-17)=Başlık | S-V(18-21)=Bilgi
+        // Logo: A1:C4 birleşik
+        addMerge(0, 0, 3, 2);
+        setS(0, 0, 'SANİFOAM A.Ş.', 's', sLogoMT);
+        for (let cc = 0; cc <= 2; cc++) {
+            setS(1, cc, '', 's', sLogoMid);
+            setS(2, cc, '', 's', sLogoMid);
+            setS(3, cc, '', 's', sLogoMB);
+        }
 
-        // Boş logo satırları (A2:C4)
-        for (let rr = 1; rr <= 3; rr++) for (let cc = 0; cc <= 2; cc++) setS(rr, cc, '', 's', sLogo);
+        // Başlık: D-R (cols 3-17), 15 sütun
+        addMerge(0, 3, 0, 17); setS(0, 3, 'KALİTE YÖNETİM SİSTEMİ DOKÜMANTASYONU', 's', sHdrTitle);
+        addMerge(1, 3, 1, 17); setS(1, 3, 'MUAYENE/ÖLÇME/DENEY TEÇHİZATLARI KONTROL PLANI (' + new Date().getFullYear() + ')', 's', sHdrSub);
+        addMerge(2, 3, 2, 17); setS(2, 3, '', 's', sHdrFill);
+        addMerge(3, 3, 3, 17); setS(3, 3, '', 's', sHdrFillB);
 
-        // --- Sütun Başlıkları (satır 4) ---
-        const COLS = ['S.No','Cihaz Adı','Seri No','Model','Departman','Konum','Ölçüm Aralığı','Birim','İzin Verilen Sapma','Son Kalibrasyon','Kal. Aralığı (Ay)','Sıradaki Kalibrasyon','Durum','Kayıt Tipi','Kal. Firması','Rapor No','Sapma','Belirsizlik','Toplam Sapma (|Sap.|+Bel.)','Sonuç','Zimmetli Personel','Notlar'];
+        // Bilgi: S-V (cols 18-21), 4 sütun
+        addMerge(0, 18, 0, 21); setS(0, 18, 'DOK NO.: PL12', 's', sInfoT);
+        addMerge(1, 18, 1, 21); setS(1, 18, 'YAYIN TARİHİ: 18.12.2006', 's', sInfoM);
+        addMerge(2, 18, 2, 21); setS(2, 18, 'REV. NO/TARİH: 10/12.12.2019', 's', sInfoM);
+        addMerge(3, 18, 3, 21); setS(3, 18, 'SAYFA: 1/' + (Math.ceil(list.length / 30) || 1), 's', sInfoB);
+
+        // ── Sütun Başlıkları (satır 4) ──────────────────────────────────────────
+        const COLS = [
+            'S.No','Cihaz Adı','Seri No','Model','Departman','Konum',
+            'Ölçüm\nAralığı','Birim','İzin\nVerilen\nSapma','Son\nKalibrasyon',
+            'Kal.\nAralığı\n(Ay)','Sıradaki\nKalibrasyon','Durum','Kayıt\nTipi',
+            'Kal. Firması','Rapor No','Sapma','Belirsiz-\nlik',
+            'Toplam\nSapma\n|S|+B','Sonuç','Zimmetli Personel','Notlar'
+        ];
         COLS.forEach((col, c) => setS(4, c, col, 's', sColHdr));
 
-        // --- Veri Satırları (satır 5+) ---
+        // ── Veri Satırları (satır 5+) ────────────────────────────────────────────
         list.forEach((inst, idx) => {
             const r = 5 + idx;
             const even = idx % 2 === 0;
@@ -1572,22 +1606,22 @@ return instruments.map(instrument => {
             const dev = rec ? (Number(rec.deviation) || 0) : null;
             const unc = rec ? (Number(rec.uncertainty) || 0) : null;
 
-            setS(r,  0, idx + 1,                              'n', sCellNum(even));
-            setS(r,  1, inst.name || '',                      's', sCellBase(even));
-            setS(r,  2, inst.serialNumber || '',              's', sCellBase(even));
-            setS(r,  3, inst.model || '',                     's', sCellBase(even));
-            setS(r,  4, inst.department || '',                's', sCellBase(even));
-            setS(r,  5, inst.location || '',                  's', sCellBase(even));
-            setS(r,  6, inst.measurementRange || '',          's', sCellBase(even));
-            setS(r,  7, inst.unit || '',                      's', sCellCtr(even));
-            setS(r,  8, Number(inst.permissibleDeviation) || 0, 'n', sCellNum(even));
-            setS(r,  9, formatDateForDisplay(inst.lastCalibrationDate), 's', sCellCtr(even));
-            setS(r, 10, Number(inst.calibrationInterval) || 12, 'n', sCellNum(even));
-            setS(r, 11, formatDateForDisplay(inst.nextCalibrationDate), 's', sCellCtr(even));
-            setS(r, 12, inst.status || '',                    's', sCellStat(inst.status));
-            setS(r, 13, rec ? (rec.recordType || '') : '',    's', sCellCtr(even));
+            setS(r,  0, idx + 1,                                   'n', sCellNum(even));
+            setS(r,  1, inst.name || '',                           's', sCellBase(even));
+            setS(r,  2, inst.serialNumber || '',                   's', sCellCtr(even));
+            setS(r,  3, inst.model || '',                          's', sCellBase(even));
+            setS(r,  4, inst.department || '',                     's', sCellBase(even));
+            setS(r,  5, inst.location || '',                       's', sCellBase(even));
+            setS(r,  6, inst.measurementRange || '',               's', sCellCtr(even));
+            setS(r,  7, inst.unit || '',                           's', sCellCtr(even));
+            setS(r,  8, Number(inst.permissibleDeviation) || 0,   'n', sCellNum(even));
+            setS(r,  9, formatDateForDisplay(inst.lastCalibrationDate),  's', sCellCtr(even));
+            setS(r, 10, Number(inst.calibrationInterval) || 12,   'n', sCellNum(even));
+            setS(r, 11, formatDateForDisplay(inst.nextCalibrationDate),  's', sCellCtr(even));
+            setS(r, 12, inst.status || '',                         's', sCellStat(inst.status));
+            setS(r, 13, rec ? (rec.recordType || '') : '',         's', sCellCtr(even));
             setS(r, 14, rec ? (rec.calibratingCompany || '') : '', 's', sCellBase(even));
-            setS(r, 15, rec ? (rec.reportNumber || '') : '',  's', sCellBase(even));
+            setS(r, 15, rec ? (rec.reportNumber || '') : '',       's', sCellBase(even));
             if (dev !== null) { setS(r, 16, dev, 'n', sCellNum(even)); } else { setS(r, 16, '', 's', sCellBase(even)); }
             if (unc !== null) { setS(r, 17, unc, 'n', sCellNum(even)); } else { setS(r, 17, '', 's', sCellBase(even)); }
             if (rec) {
@@ -1598,13 +1632,23 @@ return instruments.map(instrument => {
                 setS(r, 19, '', 's', sCellBase(even));
             }
             setS(r, 20, rec ? (rec.assignedPersonnel || '') : '', 's', sCellBase(even));
-            setS(r, 21, rec ? (rec.notes || '') : '',          's', { ...sCellBase(even), alignment: { horizontal: 'left', vertical: 'center', wrapText: true } });
+            setS(r, 21, rec ? (rec.notes || '') : '', 's', { ...sCellBase(even), alignment:{horizontal:'left',vertical:'center',wrapText:true} });
         });
 
         ws['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: 4 + list.length, c: 21 } });
         ws['!merges'] = merges;
-        ws['!cols'] = [5,32,16,18,22,18,16,7,10,14,10,14,12,12,22,18,10,12,14,14,25,30].map(w => ({ wch: w }));
-        ws['!rows'] = [{ hpt: 36 }, { hpt: 28 }, { hpt: 20 }, { hpt: 20 }, { hpt: 32 }];
+        // Sütun genişlikleri (karakter birimi):
+        // S.No | CihazAdı | SeriNo | Model | Depart | Konum | ÖlçAr | Bir | İznSap | SonKal | KalAr | SırKal | Durum | KayTip | KalFirm | RapNo | Sap | Bel | ToplSap | Sonuç | Zimm | Notlar
+        ws['!cols'] = [4, 22, 13, 14, 18, 13, 13, 6, 8, 13, 7, 13, 11, 9, 18, 15, 8, 10, 12, 12, 22, 28].map(w => ({ wch: w }));
+        ws['!rows'] = [
+            { hpt: 42 }, { hpt: 30 }, { hpt: 18 }, { hpt: 18 }, { hpt: 40 },
+            ...list.map(() => ({ hpt: 17 }))
+        ];
+        // Baskı: yatay, A4 genişliğine sığdır, üst satırları tekrarla
+        ws['!pageSetup'] = { orientation: 'landscape', paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0, scale: 100 };
+        ws['!printOptions'] = { gridLines: false };
+        ws['!margins'] = { left: 0.3, right: 0.3, top: 0.5, bottom: 0.5, header: 0.2, footer: 0.2 };
+        ws['!freeze'] = { xSplit: 0, ySplit: 5 };
 
         XLSX.utils.book_append_sheet(wb, ws, 'Kontrol Planı');
         XLSX.writeFile(wb, 'PL12_Techizat_Kontrol_Plani_' + new Date().getFullYear() + '.xlsx');
