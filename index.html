@@ -2872,7 +2872,7 @@ const AllCalibrationsView = ({ records, instruments, onEditRecord, onDeleteRecor
         }
         toastService.error('Rapor dosyası bulunamadı.');
     };
-    const [filters, setFilters] = useState({ searchTerm: '', result: '' });
+    const [filters, setFilters] = useState({ searchTerm: '', result: '', recordType: '' });
     const [columns, setColumns] = useLocalStorage('allCalibrationsTableColumns', ALL_CALIBRATIONS_COLUMNS);
     const [isViewSettingsOpen, setViewSettingsOpen] = useState(false);
     const [sortConfig, setSortConfig] = useState({ key: 'date', direction: 'descending' });
@@ -2882,7 +2882,8 @@ const AllCalibrationsView = ({ records, instruments, onEditRecord, onDeleteRecor
     useEffect(() => {
         setFilters({
             searchTerm: initialFilter?.searchTerm || '',
-            result: initialFilter?.result || ''
+            result: initialFilter?.result || '',
+            recordType: initialFilter?.recordType || ''
         });
     }, [initialFilter]);
 
@@ -2935,6 +2936,10 @@ const AllCalibrationsView = ({ records, instruments, onEditRecord, onDeleteRecor
         
         if (filters.result) {
             filtered = filtered.filter(r => r.result === filters.result);
+        }
+
+        if (filters.recordType) {
+            filtered = filtered.filter(r => r.recordType === filters.recordType);
         }
 
         if (sortConfig !== null) {
@@ -3010,6 +3015,15 @@ const AllCalibrationsView = ({ records, instruments, onEditRecord, onDeleteRecor
                             onChange: handleFilterChange,
                             className: "w-full md:w-60 pl-10 pr-4 py-2 border border-slate-300 rounded-md dark:bg-slate-700 dark:border-slate-600"
                         })
+                    ),
+                    e(FormSelect, {
+                        name: "recordType",
+                        value: filters.recordType,
+                        onChange: handleFilterChange,
+                        className: "py-2"
+                    },
+                        e("option", { value: "" }, "Tüm Kayıt Tipleri"),
+                        Object.values(RecordType).map(t => e("option", { key: t, value: t }, t))
                     ),
                     e(FormSelect, {
                         name: "result",
