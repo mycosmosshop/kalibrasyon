@@ -698,6 +698,21 @@ const App = () => {
         }
     }, []);
 
+    // Doğrulama kayıtlarına ÇELİK CETVEL/LABORATUVAR (SN: 20244561) referans olarak ata
+    useEffect(() => {
+        const refInstrument = instruments.find(i => String(i.serialNumber).trim() === '20244561');
+        if (!refInstrument) return;
+        const needsUpdate = calibrationRecords.some(
+            r => r.recordType === RecordType.VERIFICATION && !r.referenceInstrumentId
+        );
+        if (!needsUpdate) return;
+        setCalibrationRecords(prev => prev.map(r =>
+            r.recordType === RecordType.VERIFICATION && !r.referenceInstrumentId
+                ? { ...r, referenceInstrumentId: refInstrument.id }
+                : r
+        ));
+    }, [instruments]);
+
     const [currentView, setCurrentView] = useState('dashboard');
     const [allCalibrationsInitialFilter, setAllCalibrationsInitialFilter] = useState(null);
     const [instrumentListInitialFilter, setInstrumentListInitialFilter] = useState(null);
