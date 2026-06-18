@@ -1512,7 +1512,105 @@ return instruments.map(instrument => {
         XLSX.writeFile(wb, "Kalibrasyon_Raporu.xlsx");
         setExportOpen(false);
     };
-    
+
+    const handlePL12Export = (instrumentsList) => {
+        const list = Array.isArray(instrumentsList) && instrumentsList.length > 0 ? instrumentsList : instruments;
+        if (!list || list.length === 0) { toastService.warning("Dışa aktarılacak cihaz bulunamadı."); return; }
+
+        const wb = XLSX.utils.book_new();
+        const ws = {};
+        const merges = [];
+        const EC = (r, c) => XLSX.utils.encode_cell({ r, c });
+        const addMerge = (rs, cs, re, ce) => merges.push({ s: { r: rs, c: cs }, e: { r: re, c: ce } });
+
+        const bdr = { top: { style: 'thin', color: { rgb: '000000' } }, bottom: { style: 'thin', color: { rgb: '000000' } }, left: { style: 'thin', color: { rgb: '000000' } }, right: { style: 'thin', color: { rgb: '000000' } } };
+        const bdrMed = { top: { style: 'medium', color: { rgb: '000000' } }, bottom: { style: 'medium', color: { rgb: '000000' } }, left: { style: 'medium', color: { rgb: '000000' } }, right: { style: 'medium', color: { rgb: '000000' } } };
+        const sHdrDark = { font: { bold: true, color: { rgb: 'FFFFFF' }, name: 'Arial', sz: 10 }, fill: { fgColor: { rgb: '1E3A5F' }, patternType: 'solid' }, alignment: { horizontal: 'center', vertical: 'center', wrapText: true }, border: bdr };
+        const sHdrMid  = { font: { bold: true, color: { rgb: 'FFFFFF' }, name: 'Arial', sz: 10 }, fill: { fgColor: { rgb: '2E5FA3' }, patternType: 'solid' }, alignment: { horizontal: 'center', vertical: 'center', wrapText: true }, border: bdr };
+        const sHdrInfo = { font: { bold: true, color: { rgb: '1E3A5F' }, name: 'Arial', sz: 9  }, fill: { fgColor: { rgb: 'DDEEFF' }, patternType: 'solid' }, alignment: { horizontal: 'right',  vertical: 'center' }, border: bdr };
+        const sLogo    = { font: { bold: true, color: { rgb: '1E3A5F' }, name: 'Arial', sz: 14 }, fill: { fgColor: { rgb: 'FFFFFF' }, patternType: 'solid' }, alignment: { horizontal: 'center', vertical: 'center' }, border: bdrMed };
+        const sColHdr  = { font: { bold: true, color: { rgb: 'FFFFFF' }, name: 'Arial', sz: 9  }, fill: { fgColor: { rgb: '4472C4' }, patternType: 'solid' }, alignment: { horizontal: 'center', vertical: 'center', wrapText: true }, border: bdr };
+        const sCellBase = (even) => ({ font: { name: 'Arial', sz: 9 }, fill: { fgColor: { rgb: even ? 'FFFFFF' : 'EEF4FF' }, patternType: 'solid' }, alignment: { horizontal: 'left', vertical: 'center' }, border: bdr });
+        const sCellCtr  = (even) => ({ ...sCellBase(even), alignment: { horizontal: 'center', vertical: 'center' } });
+        const sCellNum  = (even) => ({ ...sCellBase(even), alignment: { horizontal: 'center', vertical: 'center' } });
+        const sCellRes  = (result) => {
+            const rgb = result === CalibrationResult.COMPLIANT ? 'C6EFCE' : result === CalibrationResult.NON_COMPLIANT ? 'FFC7CE' : result === CalibrationResult.MARGINAL ? 'FFEB9C' : 'FFFFFF';
+            return { font: { bold: true, name: 'Arial', sz: 9 }, fill: { fgColor: { rgb }, patternType: 'solid' }, alignment: { horizontal: 'center', vertical: 'center' }, border: bdr };
+        };
+        const sCellStat = (status) => {
+            const rgb = status === CalibrationStatus.OK ? 'C6EFCE' : status === CalibrationStatus.OVERDUE ? 'FFC7CE' : status === CalibrationStatus.DUE_SOON ? 'FFEB9C' : 'FFFFFF';
+            return { font: { bold: true, name: 'Arial', sz: 9 }, fill: { fgColor: { rgb }, patternType: 'solid' }, alignment: { horizontal: 'center', vertical: 'center' }, border: bdr };
+        };
+
+        const setS = (r, c, v, t, s) => { ws[EC(r,c)] = { v: v === null || v === undefined ? '' : v, t: t || 's', s: s || {} }; };
+        const setF = (r, c, f, s) => { ws[EC(r,c)] = { f, t: 'n', s: s || {} }; };
+
+        // --- Başlık: 4 satır ---
+        addMerge(0, 0, 3, 2);  setS(0, 0, 'SANİFOAM A.Ş.', 's', sLogo);
+        addMerge(0, 3, 0, 14); setS(0, 3, 'KALİTE YÖNETİM SİSTEMİ DOKÜMANTASYONU', 's', sHdrDark);
+        addMerge(0,15, 0, 17); setS(0,15, 'DOK NO.: PL12', 's', sHdrInfo);
+        addMerge(1, 3, 1, 14); setS(1, 3, 'MUAYENE/ÖLÇME/DENEY TEÇHİZATLARI KONTROL PLANI (' + new Date().getFullYear() + ')', 's', sHdrMid);
+        addMerge(1,15, 1, 17); setS(1,15, 'YAYIN TARİHİ: 18.12.2006', 's', sHdrInfo);
+        addMerge(2, 3, 2, 14); setS(2, 3, '', 's', sHdrMid);
+        addMerge(2,15, 2, 17); setS(2,15, 'REV. NO/TARİH: 10/12.12.2019', 's', sHdrInfo);
+        addMerge(3, 3, 3, 14); setS(3, 3, '', 's', sHdrMid);
+        addMerge(3,15, 3, 17); setS(3,15, 'SAYFA: 1/' + (Math.ceil(list.length / 30) || 1), 's', sHdrInfo);
+
+        // Boş logo satırları (A2:C4)
+        for (let rr = 1; rr <= 3; rr++) for (let cc = 0; cc <= 2; cc++) setS(rr, cc, '', 's', sLogo);
+
+        // --- Sütun Başlıkları (satır 4) ---
+        const COLS = ['S.No','Cihaz Adı','Seri No','Model','Departman','Konum','Ölçüm Aralığı','Birim','İzin Verilen Sapma','Son Kalibrasyon','Kal. Aralığı (Ay)','Sıradaki Kalibrasyon','Durum','Kayıt Tipi','Kal. Firması','Rapor No','Sapma','Belirsizlik','Toplam Sapma (|Sap.|+Bel.)','Sonuç','Zimmetli Personel','Notlar'];
+        COLS.forEach((col, c) => setS(4, c, col, 's', sColHdr));
+
+        // --- Veri Satırları (satır 5+) ---
+        list.forEach((inst, idx) => {
+            const r = 5 + idx;
+            const even = idx % 2 === 0;
+            const instRecs = calibrationRecords.filter(rec => rec.instrumentId === inst.id).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+            const rec = instRecs[0] || null;
+            const dev = rec ? (Number(rec.deviation) || 0) : null;
+            const unc = rec ? (Number(rec.uncertainty) || 0) : null;
+
+            setS(r,  0, idx + 1,                              'n', sCellNum(even));
+            setS(r,  1, inst.name || '',                      's', sCellBase(even));
+            setS(r,  2, inst.serialNumber || '',              's', sCellBase(even));
+            setS(r,  3, inst.model || '',                     's', sCellBase(even));
+            setS(r,  4, inst.department || '',                's', sCellBase(even));
+            setS(r,  5, inst.location || '',                  's', sCellBase(even));
+            setS(r,  6, inst.measurementRange || '',          's', sCellBase(even));
+            setS(r,  7, inst.unit || '',                      's', sCellCtr(even));
+            setS(r,  8, Number(inst.permissibleDeviation) || 0, 'n', sCellNum(even));
+            setS(r,  9, formatDateForDisplay(inst.lastCalibrationDate), 's', sCellCtr(even));
+            setS(r, 10, Number(inst.calibrationInterval) || 12, 'n', sCellNum(even));
+            setS(r, 11, formatDateForDisplay(inst.nextCalibrationDate), 's', sCellCtr(even));
+            setS(r, 12, inst.status || '',                    's', sCellStat(inst.status));
+            setS(r, 13, rec ? (rec.recordType || '') : '',    's', sCellCtr(even));
+            setS(r, 14, rec ? (rec.calibratingCompany || '') : '', 's', sCellBase(even));
+            setS(r, 15, rec ? (rec.reportNumber || '') : '',  's', sCellBase(even));
+            if (dev !== null) { setS(r, 16, dev, 'n', sCellNum(even)); } else { setS(r, 16, '', 's', sCellBase(even)); }
+            if (unc !== null) { setS(r, 17, unc, 'n', sCellNum(even)); } else { setS(r, 17, '', 's', sCellBase(even)); }
+            if (rec) {
+                setF(r, 18, 'ABS(' + EC(r,16) + ')+' + EC(r,17), sCellNum(even));
+                setF(r, 19, 'IF(' + EC(r,16) + '="","",IF(' + EC(r,18) + '<=' + EC(r,8) + ',"' + CalibrationResult.COMPLIANT + '",IF(' + EC(r,18) + '<=' + EC(r,8) + '*1.1,"' + CalibrationResult.MARGINAL + '","' + CalibrationResult.NON_COMPLIANT + '")))', sCellRes(rec.result));
+            } else {
+                setS(r, 18, '', 's', sCellBase(even));
+                setS(r, 19, '', 's', sCellBase(even));
+            }
+            setS(r, 20, rec ? (rec.assignedPersonnel || '') : '', 's', sCellBase(even));
+            setS(r, 21, rec ? (rec.notes || '') : '',          's', { ...sCellBase(even), alignment: { horizontal: 'left', vertical: 'center', wrapText: true } });
+        });
+
+        ws['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: 4 + list.length, c: 21 } });
+        ws['!merges'] = merges;
+        ws['!cols'] = [5,32,16,18,22,18,16,7,10,14,10,14,12,12,22,18,10,12,14,14,25,30].map(w => ({ wch: w }));
+        ws['!rows'] = [{ hpt: 36 }, { hpt: 28 }, { hpt: 20 }, { hpt: 20 }, { hpt: 32 }];
+
+        XLSX.utils.book_append_sheet(wb, ws, 'Kontrol Planı');
+        XLSX.writeFile(wb, 'PL12_Techizat_Kontrol_Plani_' + new Date().getFullYear() + '.xlsx');
+        setExportOpen(false);
+    };
+
     const handleGenerateProcedure = async (instrumentData, setProcedure) => {
         if (!ai) {
             toastService.error("Lütfen ayarlardan geçerli bir GenAI API Anahtarı girin.");
@@ -1736,10 +1834,11 @@ return instruments.map(instrument => {
                 onClose: () => setDataImportOpen(false),
                 onImport: handleUnifiedImport
             }),
-            e(ExportModal, { 
+            e(ExportModal, {
                 isOpen: isExportOpen,
                 onClose: () => setExportOpen(false),
                 onExport: handleExport,
+                onPL12Export: handlePL12Export,
                 instruments: dataToExport
             }),
             e(BulkInstrumentEditModal, {
@@ -4163,7 +4262,7 @@ const SettingsModal = ({ isOpen, onClose, settings, onSave, instruments, getInst
     );
 };
 
-const ExportModal = ({ isOpen, onClose, onExport, instruments }) => {
+const ExportModal = ({ isOpen, onClose, onExport, onPL12Export, instruments }) => {
     const [selectedInstrumentColumns, setSelectedInstrumentColumns] = useState(ALL_INSTRUMENT_COLUMNS.filter(c => c.visible).map(c => c.key));
     const [selectedRecordColumns, setSelectedRecordColumns] = useState(ALL_CALIBRATIONS_COLUMNS.filter(c => c.visible).map(c => c.key));
 
@@ -4229,9 +4328,19 @@ const ColumnSelector = ({ title, allColumns, selected, setSelected }) => {
                 selected: selectedRecordColumns,
                 setSelected: setSelectedRecordColumns
             }),
-            e("div", { className: "flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-700" },
-                e("button", { onClick: onClose, className: "px-4 py-2 rounded-md font-semibold" }, "İptal"),
-                e("button", { onClick: handleExportClick, className: "px-4 py-2 rounded-md text-white bg-sky-600 font-semibold" }, "Dışa Aktar")
+            e("div", { className: "flex flex-wrap justify-between items-center gap-3 pt-4 border-t border-slate-200 dark:border-slate-700" },
+                e("button", {
+                    onClick: () => onPL12Export && onPL12Export(instruments),
+                    className: "flex items-center gap-2 px-4 py-2 rounded-md text-white bg-emerald-600 hover:bg-emerald-700 font-semibold transition-colors",
+                    title: "Sanifoam antetli PL12 kontrol planı formatında dışa aktar"
+                },
+                    e(DocumentArrowDownIcon, {}),
+                    "PL12 Kontrol Planı (.xlsx)"
+                ),
+                e("div", { className: "flex gap-3" },
+                    e("button", { onClick: onClose, className: "px-4 py-2 rounded-md font-semibold" }, "İptal"),
+                    e("button", { onClick: handleExportClick, className: "px-4 py-2 rounded-md text-white bg-sky-600 hover:bg-sky-700 font-semibold" }, "Standart Dışa Aktar")
+                )
             )
         )
     );
