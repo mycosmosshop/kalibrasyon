@@ -34,7 +34,7 @@
       .on('postgres_changes', {event:'*', schema:'public', table:'supplier_sync', filter:'id=eq.'+ROW_ID}, function(p){
         var row=p.new; if(!row||!row.data||row.updated_by===_uid) return;
         applyRemote(row.data);
-        if(Date.now()-_lastEdit > 8000){ location.reload(); } else { banner(); }
+        if(Date.now()-_lastEdit > 8000){ location.reload(); }
       }).subscribe();
   }
 
