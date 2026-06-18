@@ -2581,6 +2581,218 @@ const InstrumentDetailView = ({ instrument, records, onBack, onEditInstrument, o
     );
 };
 
+// ===== Kalibrasyon Düzeltme / Sapma Tablosu (additive — her birim için) =====
+const TableCellsIcon = ({ className = 'w-5 h-5' }) => e("svg", { xmlns: "http://www.w3.org/2000/svg", fill: "none", viewBox: "0 0 24 24", strokeWidth: 1.5, stroke: "currentColor", className: className }, e("path", { strokeLinecap: "round", strokeLinejoin: "round", d: "M3.375 19.5h17.25m-17.25 0a1.125 1.125 0 0 1-1.125-1.125M3.375 19.5h7.5c.621 0 1.125-.504 1.125-1.125m-9.75 0V5.625m0 12.75v-1.5c0-.621.504-1.125 1.125-1.125m18.375 2.625V5.625m0 12.75c0 .621-.504 1.125-1.125 1.125m1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125m0 3.75h-7.5A1.125 1.125 0 0 1 12 18.375m9.75-12.75c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125m19.5 0v1.5c0 .621-.504 1.125-1.125 1.125M2.25 5.625v1.5c0 .621.504 1.125 1.125 1.125m0 0h17.25m-17.25 0h7.5c.621 0 1.125.504 1.125 1.125M3.375 8.25c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125m0-3.75h7.5A1.125 1.125 0 0 1 12 9.375M3.375 12h7.5m-7.5 0c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125m0-3.75h7.5c.621 0 1.125.504 1.125 1.125m0 0v1.5c0 .621-.504 1.125-1.125 1.125m0 0h-7.5" }));
+const PrinterIcon = ({ className = 'w-5 h-5' }) => e("svg", { xmlns: "http://www.w3.org/2000/svg", fill: "none", viewBox: "0 0 24 24", strokeWidth: 1.5, stroke: "currentColor", className: className }, e("path", { strokeLinecap: "round", strokeLinejoin: "round", d: "M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0 1 10.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0 .229 2.523a1.125 1.125 0 0 1-1.12 1.227H7.231c-.662 0-1.18-.568-1.12-1.227L6.34 18m11.318 0h1.091A2.25 2.25 0 0 0 21 15.75V9.456c0-1.081-.768-2.015-1.837-2.175a48.055 48.055 0 0 0-1.913-.247M6.34 18H5.25A2.25 2.25 0 0 1 3 15.75V9.456c0-1.081.768-2.015 1.837-2.175a48.041 48.041 0 0 1 1.913-.247m10.5 0a48.536 48.536 0 0 0-10.5 0m10.5 0V3.375c0-.621-.504-1.125-1.125-1.125h-8.25c-.621 0-1.125.504-1.125 1.125v3.659M18 10.5h.008v.008H18V10.5Zm-3 0h.008v.008H15V10.5Z" }));
+
+function corrNormalize(c, instrument) {
+    c = c || {};
+    var blank = function (v) { return (v === undefined || v === null) ? '' : v; };
+    return {
+        enabled: !!c.enabled,
+        unit: (c.unit !== undefined && c.unit !== null) ? c.unit : (instrument && instrument.unit ? instrument.unit : ''),
+        mode: c.mode === 'read' ? 'read' : 'target',
+        points: Array.isArray(c.points) ? c.points : [],
+        rangeMin: blank(c.rangeMin), rangeMax: blank(c.rangeMax), rangeStep: blank(c.rangeStep)
+    };
+}
+function corrPiecewise(pairs, x) {
+    var n = pairs.length;
+    if (!n) return null;
+    if (n === 1) return pairs[0].b;
+    var i0, i1;
+    if (x <= pairs[0].a) { i0 = 0; i1 = 1; }
+    else if (x >= pairs[n - 1].a) { i0 = n - 2; i1 = n - 1; }
+    else { for (var i = 0; i < n - 1; i++) { if (x >= pairs[i].a && x <= pairs[i + 1].a) { i0 = i; i1 = i + 1; break; } } }
+    var x0 = pairs[i0].a, x1 = pairs[i1].a, y0 = pairs[i0].b, y1 = pairs[i1].b;
+    if (x1 === x0) return y0;
+    return y0 + (y1 - y0) * (x - x0) / (x1 - x0);
+}
+function corrDecimals(points) {
+    var d = 1;
+    (points || []).forEach(function (p) {
+        [p.measured, p.actual].forEach(function (v) {
+            var s = String(v == null ? '' : v); var i = s.indexOf('.');
+            if (i >= 0) d = Math.max(d, s.length - i - 1);
+        });
+    });
+    return Math.min(Math.max(d, 1), 4);
+}
+function corrGenerate(corr) {
+    var pts = (corr.points || []).map(function (p) { return { measured: parseFloat(p.measured), actual: parseFloat(p.actual) }; })
+        .filter(function (p) { return !isNaN(p.measured) && !isNaN(p.actual); });
+    if (pts.length < 2) return { rows: [], error: 'En az 2 kalibrasyon noktası girin (ölçülen + gerçek).' };
+    var min = parseFloat(corr.rangeMin), max = parseFloat(corr.rangeMax), step = parseFloat(corr.rangeStep);
+    if (isNaN(min) || isNaN(max) || isNaN(step)) return { rows: [], error: 'Aralık için Min, Max ve Adım girin.' };
+    if (step <= 0 || max < min) return { rows: [], error: 'Geçersiz aralık (Adım > 0 ve Max ≥ Min olmalı).' };
+    if ((max - min) / step > 500) return { rows: [], error: 'Çok fazla satır oluşur — adımı büyütün.' };
+    var target = corr.mode !== 'read';
+    var pairs = pts.map(function (p) { return target ? { a: p.actual, b: p.measured } : { a: p.measured, b: p.actual }; })
+        .sort(function (u, v) { return u.a - v.a; });
+    var lo = pairs[0].a, hi = pairs[pairs.length - 1].a;
+    var rows = [], x = min, guard = 0;
+    while (x <= max + 1e-9 && guard < 1000) {
+        var xv = Math.min(x, max);
+        var y = corrPiecewise(pairs, xv);
+        var ext = xv < lo - 1e-9 || xv > hi + 1e-9;
+        rows.push({ x: xv, y: y, diff: y - xv, pct: xv !== 0 ? ((y - xv) / xv) * 100 : 0, ext: ext });
+        if (xv >= max) break;
+        x += step; guard++;
+    }
+    return { rows: rows, error: null };
+}
+function corrFmt(n, dec) { if (n === null || n === undefined || isNaN(n)) return '—'; return Number(n).toFixed(dec); }
+function corrHasData(c) {
+    return c && c.enabled && (c.points || []).filter(function (p) { return p && p.measured !== '' && p.measured != null && p.actual !== '' && p.actual != null; }).length >= 2;
+}
+function printCorrectionTable(record, instrument) {
+    var corr = corrNormalize(record.corrections, instrument);
+    var gen = corrGenerate(corr);
+    if (gen.error) { try { toastService.error(gen.error); } catch (_) { alert(gen.error); } return; }
+    var dec = corrDecimals(corr.points || []);
+    var unit = corr.unit || (instrument && instrument.unit) || '';
+    var target = corr.mode !== 'read';
+    var name = instrument ? instrument.name : (record.instrumentName || '');
+    var serial = instrument ? (instrument.serialNumber || '') : '';
+    var colX = target ? ('İstenen Gerçek Değer (' + unit + ')') : ('Cihaz Göstergesi / Okunan (' + unit + ')');
+    var colY = target ? ('Cihaza Ayarla — Okunması Gereken (' + unit + ')') : ('Gerçek Değer (' + unit + ')');
+    var colD = target ? 'Fark (Ayar − Hedef)' : 'Düzeltme (Gerçek − Okunan)';
+    var rowsHtml = gen.rows.map(function (r) {
+        return '<tr><td class="x">' + corrFmt(r.x, dec) + (r.ext ? ' <span class="ext">ext</span>' : '') + '</td><td class="y">' + corrFmt(r.y, dec) + '</td><td>' + (r.diff >= 0 ? '+' : '') + corrFmt(r.diff, dec) + '</td><td>' + (r.pct >= 0 ? '+' : '') + r.pct.toFixed(2) + ' %</td></tr>';
+    }).join('');
+    var ptsHtml = (corr.points || []).filter(function (p) { return p.measured !== '' && p.actual !== ''; }).map(function (p) { return '<tr><td>' + p.measured + '</td><td>' + p.actual + '</td></tr>'; }).join('');
+    var usage = target ? 'Hedef (gerçek) değere ulaşmak için cihaza «Okunması Gereken» sütunundaki değeri ayarlayın.' : 'Cihaz «Okunan» değeri gösterdiğinde gerçek değer «Gerçek Değer» sütunundadır.';
+    var doc = '<!doctype html><html lang="tr"><head><meta charset="utf-8"><title>' + name + ' — Düzeltme Tablosu</title>' +
+        '<style>body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:24px;}h1{font-size:18px;margin:0 0 4px;}.sub{font-size:12px;color:#555;margin:0 0 2px;}table{border-collapse:collapse;width:100%;margin-top:14px;font-size:12px;}th,td{border:1px solid #999;padding:5px 8px;text-align:right;}th{background:#f0f0f0;font-size:11px;}td.x{font-weight:bold;text-align:left;}td.y{font-weight:bold;color:#0369a1;}.ext{font-size:9px;background:#fde68a;color:#92400e;padding:0 3px;border-radius:3px;}.usage{margin-top:12px;font-size:12px;padding:8px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:4px;}.pts{margin-top:14px;width:auto;}.pts th,.pts td{padding:3px 10px;}.note{margin-top:12px;font-size:10px;color:#777;}@media print{button{display:none;}}</style></head><body>' +
+        '<h1>' + name + ' — Düzeltme / Sapma Tablosu</h1>' +
+        '<p class="sub">Seri No: ' + serial + ' &nbsp;·&nbsp; Rapor No: ' + (record.reportNumber || '—') + ' &nbsp;·&nbsp; Kalibrasyon: ' + formatDateForDisplay(record.date) + '</p>' +
+        '<p class="sub">Birim: ' + unit + ' &nbsp;·&nbsp; Aralık: ' + corr.rangeMin + ' – ' + corr.rangeMax + ' ' + unit + ' (adım ' + corr.rangeStep + ')</p>' +
+        '<div class="usage">' + usage + '</div>' +
+        '<table><thead><tr><th style="text-align:left">' + colX + '</th><th>' + colY + '</th><th>' + colD + '</th><th>Sapma %</th></tr></thead><tbody>' + rowsHtml + '</tbody></table>' +
+        '<table class="pts"><thead><tr><th>Rapor: Ölçülen</th><th>Rapor: Gerçek</th></tr></thead><tbody>' + ptsHtml + '</tbody></table>' +
+        '<p class="note">* «ext» işaretli satırlar kalibrasyon aralığı dışında, lineer ekstrapolasyonla hesaplanmıştır. Değerler rapordaki noktalar arası lineer interpolasyona dayanır.</p>' +
+        '<button onclick="window.print()" style="margin-top:16px;padding:8px 16px;font-size:13px;cursor:pointer;">Yazdır</button>' +
+        '<scr' + 'ipt>window.onload=function(){setTimeout(function(){window.print();},300);};<\/scr' + 'ipt></body></html>';
+    var w = window.open('', '_blank');
+    if (!w) { try { toastService.error('Açılır pencere engellendi. Pop-up izni verin.'); } catch (_) { } return; }
+    w.document.open(); w.document.write(doc); w.document.close();
+}
+
+const CorrectionTableView = ({ corr, instrument }) => {
+    const gen = useMemo(() => corrGenerate(corr), [corr]);
+    const dec = useMemo(() => corrDecimals(corr.points || []), [corr.points]);
+    const unit = corr.unit || (instrument && instrument.unit) || '';
+    const target = corr.mode !== 'read';
+    if (gen.error) return e("div", { className: "text-sm text-slate-500 dark:text-slate-400 italic p-3 bg-slate-50 dark:bg-slate-900/40 rounded-lg" }, gen.error);
+    const colX = target ? `İstenen Gerçek Değer (${unit})` : `Cihaz Göstergesi / Okunan (${unit})`;
+    const colY = target ? `Cihaza Ayarla — Okunması Gereken (${unit})` : `Gerçek Değer (${unit})`;
+    const colD = target ? "Fark (Ayar − Hedef)" : "Düzeltme (Gerçek − Okunan)";
+    return e("div", { className: "overflow-x-auto border border-slate-200 dark:border-slate-700 rounded-lg max-h-80 overflow-y-auto" },
+        e("table", { className: "w-full text-sm text-right" },
+            e("thead", { className: "bg-slate-100 dark:bg-slate-700/50 text-xs text-slate-600 dark:text-slate-300 sticky top-0" },
+                e("tr", {},
+                    e("th", { className: "p-2 text-left" }, colX),
+                    e("th", { className: "p-2" }, colY),
+                    e("th", { className: "p-2" }, colD),
+                    e("th", { className: "p-2" }, "Sapma %")
+                )
+            ),
+            e("tbody", { className: "divide-y divide-slate-100 dark:divide-slate-700/50" },
+                gen.rows.map((r, i) => e("tr", { key: i, className: "hover:bg-slate-50 dark:hover:bg-slate-700/30" },
+                    e("td", { className: "p-2 text-left font-medium text-slate-700 dark:text-slate-200" }, corrFmt(r.x, dec), r.ext && e("span", { className: "ml-1 text-[9px] px-1 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 align-middle" }, "ext")),
+                    e("td", { className: "p-2 font-semibold text-sky-700 dark:text-sky-400" }, corrFmt(r.y, dec)),
+                    e("td", { className: "p-2 text-slate-500 dark:text-slate-400" }, (r.diff >= 0 ? '+' : '') + corrFmt(r.diff, dec)),
+                    e("td", { className: "p-2 text-slate-500 dark:text-slate-400" }, (r.pct >= 0 ? '+' : '') + r.pct.toFixed(2) + ' %')
+                ))
+            )
+        )
+    );
+};
+
+const CorrectionTableEditor = ({ value, instrument, onChange }) => {
+    const corr = corrNormalize(value, instrument);
+    const set = (patch) => onChange(Object.assign({}, corr, patch));
+    const toggle = () => {
+        if (!corr.enabled) set({ enabled: true, unit: corr.unit || (instrument && instrument.unit) || '' });
+        else set({ enabled: false });
+    };
+    const setPoint = (i, k, v) => { const pts = corr.points.slice(); pts[i] = Object.assign({}, pts[i] || {}, { [k]: v }); set({ points: pts }); };
+    const addPoint = () => set({ points: corr.points.concat([{ measured: '', actual: '' }]) });
+    const rmPoint = (i) => set({ points: corr.points.filter((_, j) => j !== i) });
+    const inputCls = "w-full px-2 py-1.5 border border-slate-300 rounded-md dark:bg-slate-700 dark:border-slate-600 dark:text-slate-100 text-sm focus:outline-none focus:ring-sky-500 focus:border-sky-500";
+    return e("div", { className: "border border-slate-200 dark:border-slate-700 rounded-lg" },
+        e("button", { type: "button", onClick: toggle, className: "w-full flex items-center justify-between p-3 text-left" },
+            e("span", { className: "flex items-center gap-2 font-semibold text-slate-700 dark:text-slate-200" },
+                e(TableCellsIcon, { className: "w-5 h-5 text-sky-600 dark:text-sky-400" }),
+                "Sapma / Düzeltme Tablosu",
+                corrHasData(corr) && e("span", { className: "text-xs font-normal text-slate-400" }, `(${corr.points.length} nokta)`)
+            ),
+            e("span", { className: `text-xs px-2 py-1 rounded ${corr.enabled ? 'bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300' : 'bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-400'}` }, corr.enabled ? 'Açık' : 'Kapalı')
+        ),
+        corr.enabled && e("div", { className: "p-3 pt-0 space-y-4" },
+            e("p", { className: "text-xs text-slate-500 dark:text-slate-400" }, "Kalibrasyon raporundaki ölçülen (cihaz göstergesi) ve gerçek (referans) değerleri girin; istediğiniz aralık için otomatik düzeltme tablosu oluşur. Her ölçü birimiyle çalışır."),
+            e("div", { className: "grid grid-cols-1 sm:grid-cols-2 gap-3" },
+                e(FormInput, { label: "Birim", id: "corrUnit", value: corr.unit, onChange: (ev) => set({ unit: ev.target.value }), placeholder: "N, °C, mm, bar..." }),
+                e(FormSelect, { label: "Kullanım Şekli", id: "corrMode", value: corr.mode, onChange: (ev) => set({ mode: ev.target.value }) },
+                    e("option", { value: "target" }, "Hedef değere ayarla (test/baskı cihazı)"),
+                    e("option", { value: "read" }, "Okunan değeri düzelt (ölçüm cihazı)")
+                )
+            ),
+            e("div", {},
+                e("div", { className: "flex items-center justify-between mb-1" },
+                    e("label", { className: "block text-sm font-medium text-slate-700 dark:text-slate-300" }, "Kalibrasyon Noktaları"),
+                    e("button", { type: "button", onClick: addPoint, className: "text-xs px-2 py-1 rounded bg-sky-600 text-white hover:bg-sky-700" }, "+ Satır Ekle")
+                ),
+                e("div", { className: "grid grid-cols-[1fr_1fr_auto] gap-2 text-xs text-slate-500 dark:text-slate-400 px-1 mb-1" },
+                    e("span", {}, "Ölçülen / Gösterge"),
+                    e("span", {}, "Gerçek / Referans"),
+                    e("span", { className: "w-7" }, "")
+                ),
+                corr.points.length === 0 && e("p", { className: "text-xs text-slate-400 italic px-1" }, "Henüz nokta yok. Rapordaki her satır için bir nokta ekleyin."),
+                e("div", { className: "space-y-2" },
+                    corr.points.map((p, i) => e("div", { key: i, className: "grid grid-cols-[1fr_1fr_auto] gap-2" },
+                        e("input", { type: "number", step: "any", value: p.measured == null ? '' : p.measured, onChange: (ev) => setPoint(i, 'measured', ev.target.value), placeholder: "0", className: inputCls }),
+                        e("input", { type: "number", step: "any", value: p.actual == null ? '' : p.actual, onChange: (ev) => setPoint(i, 'actual', ev.target.value), placeholder: "0", className: inputCls }),
+                        e("button", { type: "button", onClick: () => rmPoint(i), className: "px-1.5 text-slate-400 hover:text-red-600", title: "Sil" }, e(TrashIcon, { className: "w-4 h-4" }))
+                    ))
+                )
+            ),
+            e("div", {},
+                e("label", { className: "block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1" }, "İstenen Çıktı Aralığı"),
+                e("div", { className: "grid grid-cols-3 gap-2" },
+                    e(FormInput, { label: "Min", id: "corrMin", type: "number", step: "any", value: corr.rangeMin, onChange: (ev) => set({ rangeMin: ev.target.value }) }),
+                    e(FormInput, { label: "Max", id: "corrMax", type: "number", step: "any", value: corr.rangeMax, onChange: (ev) => set({ rangeMax: ev.target.value }) }),
+                    e(FormInput, { label: "Adım", id: "corrStep", type: "number", step: "any", value: corr.rangeStep, onChange: (ev) => set({ rangeStep: ev.target.value }) })
+                )
+            ),
+            e("div", {},
+                e("label", { className: "block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1" }, "Önizleme"),
+                e(CorrectionTableView, { corr: corr, instrument: instrument })
+            )
+        )
+    );
+};
+
+const CorrectionTableModal = ({ isOpen, onClose, record, instrument }) => {
+    if (!record) return null;
+    const corr = corrNormalize(record.corrections, instrument);
+    return e(Modal, { isOpen: isOpen, onClose: onClose, title: "Düzeltme / Sapma Tablosu", size: "max-w-3xl" },
+        e("div", { className: "space-y-4" },
+            e("div", { className: "flex items-start justify-between gap-4 flex-wrap" },
+                e("div", { className: "text-sm space-y-0.5" },
+                    e("p", { className: "font-semibold text-base text-slate-800 dark:text-slate-100" }, instrument ? instrument.name : (record.instrumentName || '')),
+                    e("p", { className: "text-slate-500 dark:text-slate-400" }, `Seri: ${instrument ? instrument.serialNumber : ''} · Rapor: ${record.reportNumber || '—'} · ${formatDateForDisplay(record.date)}`),
+                    e("p", { className: "text-slate-500 dark:text-slate-400" }, `Birim: ${corr.unit || '—'} · ${corr.mode === 'read' ? 'Okunan değeri düzelt' : 'Hedef değere ayarla'}`)
+                ),
+                e("button", { type: "button", onClick: () => printCorrectionTable(record, instrument), className: "flex items-center gap-1.5 px-3 py-2 rounded-md bg-sky-600 text-white hover:bg-sky-700 text-sm font-semibold whitespace-nowrap" },
+                    e(PrinterIcon, { className: "w-4 h-4" }), "Yazdır / Asılabilir")
+            ),
+            e(CorrectionTableView, { corr: corr, instrument: instrument }),
+            e("p", { className: "text-xs text-slate-400 dark:text-slate-500" }, "Aralık sınırları dışındaki (ext) değerler lineer ekstrapolasyonla hesaplanır; gerçek sapma farklı olabilir.")
+        )
+    );
+};
+
 const AllCalibrationsView = ({ records, instruments, onEditRecord, onDeleteRecord, onBulkDelete, onBulkEdit, initialFilter }) => {
     const openReport = (reportFile) => {
         if (!reportFile) return;
@@ -2599,6 +2811,7 @@ const AllCalibrationsView = ({ records, instruments, onEditRecord, onDeleteRecor
     const [isViewSettingsOpen, setViewSettingsOpen] = useState(false);
     const [sortConfig, setSortConfig] = useState({ key: 'date', direction: 'descending' });
     const [selectedIds, setSelectedIds] = useState([]);
+    const [correctionModalRecord, setCorrectionModalRecord] = useState(null);
 
     useEffect(() => {
         setFilters({
@@ -2776,6 +2989,7 @@ const AllCalibrationsView = ({ records, instruments, onEditRecord, onDeleteRecor
                                 e(SortableHeader, { key: col.key, name: col.key, sortConfig: sortConfig, requestSort: requestSort }, col.label)
                             )),
                             e("th", { className: "p-3 text-center" }, "Rapor"),
+                            e("th", { className: "p-3 text-center" }, "Sapma Tablosu"),
                             e("th", { className: "p-3 text-right" }, "İşlemler")
                         )
                     ),
@@ -2801,6 +3015,11 @@ const AllCalibrationsView = ({ records, instruments, onEditRecord, onDeleteRecor
                                         ? e("button", { onClick: () => openReport(record.reportFile), title: "Raporu Görüntüle (" + (record.reportFile.name || 'PDF') + ")", className: "p-1.5 text-red-500 hover:text-red-700 rounded-full hover:bg-red-50 dark:hover:bg-red-900/30" }, e(DocumentArrowDownIcon, { className: "w-5 h-5" }))
                                         : e("span", { className: "text-slate-300 dark:text-slate-600" }, "—")
                                 ),
+                                e("td", { className: "p-3 text-center" },
+                                    corrHasData(record.corrections)
+                                        ? e("button", { onClick: () => setCorrectionModalRecord(record), title: "Düzeltme / Sapma Tablosu", className: "p-1.5 text-sky-600 hover:text-sky-800 rounded-full hover:bg-sky-50 dark:hover:bg-sky-900/30" }, e(TableCellsIcon, { className: "w-5 h-5" }))
+                                        : e("span", { className: "text-slate-300 dark:text-slate-600" }, "—")
+                                ),
                                 e("td", { className: "p-3" },
                                      e("div", { className: "flex items-center justify-end gap-1" },
                                         e("button", { onClick: () => onEditRecord(record), title: "Düzenle", className: "p-1.5 text-slate-500 hover:text-sky-600 dark:hover:text-sky-400 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700" }, e(PencilIcon, { className: "w-4 h-4" })),
@@ -2810,7 +3029,7 @@ const AllCalibrationsView = ({ records, instruments, onEditRecord, onDeleteRecor
                             )
                         )) : (
                             e("tr", {},
-                                e("td", { colSpan: visibleColumns.length + 3, className: "text-center p-8 text-slate-500" },
+                                e("td", { colSpan: visibleColumns.length + 4, className: "text-center p-8 text-slate-500" },
                                     "Kayıt bulunamadı."
                                 )
                             )
@@ -2818,11 +3037,17 @@ const AllCalibrationsView = ({ records, instruments, onEditRecord, onDeleteRecor
                     )
                 )
             ),
-            e(ViewSettingsModal, { 
+            e(ViewSettingsModal, {
                 isOpen: isViewSettingsOpen,
                 onClose: () => setViewSettingsOpen(false),
                 columns: columns,
                 onSave: setColumns
+            }),
+            e(CorrectionTableModal, {
+                isOpen: !!correctionModalRecord,
+                onClose: () => setCorrectionModalRecord(null),
+                record: correctionModalRecord,
+                instrument: correctionModalRecord ? instruments.find(i => i.id === correctionModalRecord.instrumentId) : null
             })
         )
     );
@@ -2955,7 +3180,8 @@ const CalibrationForm = ({ isOpen, onClose, onSave, onUpdateRecord, instrumentId
         date: dateKeyOf(new Date()),
         technician: '', calibratingCompany: '', reportNumber: '', deviation: 0, uncertainty: 0,
         notes: '', recordType: RecordType.CALIBRATION,
-        referenceInstrumentId: '', assignedPersonnel: '', reportFile: null
+        referenceInstrumentId: '', assignedPersonnel: '', reportFile: null,
+        corrections: null
     };
 
     const [formData, setFormData] = useState(defaultFormState);
@@ -3210,6 +3436,11 @@ const CalibrationForm = ({ isOpen, onClose, onSave, onUpdateRecord, instrumentId
                         accept: ".pdf"
                     }),
                     e(FormTextarea, { label: "Notlar", id: "notes", name: "notes", value: formData.notes, onChange: handleChange }),
+                    e(CorrectionTableEditor, {
+                        value: formData.corrections,
+                        instrument: instrument,
+                        onChange: (c) => setFormData(prev => ({ ...prev, corrections: c }))
+                    }),
                     e("div", { className: "flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-700" },
                         e("button", { type: "button", onClick: onClose, className: "px-4 py-2 rounded-md text-slate-700 bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600 font-semibold transition-colors" }, "İptal"),
                         e("button", { type: "submit", className: "px-4 py-2 rounded-md text-white bg-sky-600 hover:bg-sky-700 font-semibold transition-colors" }, "Kaydet")
