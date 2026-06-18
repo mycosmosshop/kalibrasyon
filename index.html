@@ -2593,7 +2593,8 @@ function corrNormalize(c, instrument) {
         unit: (c.unit !== undefined && c.unit !== null) ? c.unit : (instrument && instrument.unit ? instrument.unit : ''),
         mode: c.mode === 'read' ? 'read' : 'target',
         points: Array.isArray(c.points) ? c.points : [],
-        rangeMin: blank(c.rangeMin), rangeMax: blank(c.rangeMax), rangeStep: blank(c.rangeStep)
+        rangeMin: blank(c.rangeMin), rangeMax: blank(c.rangeMax), rangeStep: blank(c.rangeStep),
+        note: blank(c.note)
     };
 }
 function corrPiecewise(pairs, x) {
@@ -2662,12 +2663,16 @@ function printCorrectionTable(record, instrument) {
     }).join('');
     var ptsHtml = (corr.points || []).filter(function (p) { return p.measured !== '' && p.actual !== ''; }).map(function (p) { return '<tr><td>' + p.measured + '</td><td>' + p.actual + '</td></tr>'; }).join('');
     var usage = target ? 'Parçanın gerçek değeri «Gerçek Değer» sütunundaki kadarsa, makine ekranında «Ekranda Görünmesi Gereken» değeri görünür. Ekran okuması bu bandın içindeyse parça uygundur.' : 'Makine ekranında «Okunan» değeri gördüğünüzde, gerçek değer «Gerçek Değer» sütunundadır.';
+    var esc = function (s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
+    var noteHtml = (corr.note && String(corr.note).trim()) ? '<div class="usernote"><b>Açıklama:</b> ' + esc(corr.note).replace(/\n/g, '<br>') + '</div>' : '';
     var doc = '<!doctype html><html lang="tr"><head><meta charset="utf-8"><title>' + name + ' — Düzeltme Tablosu</title>' +
-        '<style>body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:24px;}h1{font-size:18px;margin:0 0 4px;}.sub{font-size:12px;color:#555;margin:0 0 2px;}table{border-collapse:collapse;width:100%;margin-top:14px;font-size:12px;}th,td{border:1px solid #999;padding:5px 8px;text-align:right;}th{background:#f0f0f0;font-size:11px;}td.x{font-weight:bold;text-align:left;}td.y{font-weight:bold;color:#0369a1;}.ext{font-size:9px;background:#fde68a;color:#92400e;padding:0 3px;border-radius:3px;}.usage{margin-top:12px;font-size:12px;padding:8px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:4px;}.pts{margin-top:14px;width:auto;}.pts th,.pts td{padding:3px 10px;}.note{margin-top:12px;font-size:10px;color:#777;}@media print{button{display:none;}}</style></head><body>' +
+        '<style>body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:24px;}h1{font-size:18px;margin:0 0 4px;}.sub{font-size:12px;color:#555;margin:0 0 2px;}table{border-collapse:collapse;width:100%;margin-top:14px;font-size:12px;}th,td{border:1px solid #999;padding:5px 8px;text-align:right;}th{background:#f0f0f0;font-size:11px;}td.x{font-weight:bold;text-align:left;}td.y{font-weight:bold;color:#0369a1;}.ext{font-size:9px;background:#fde68a;color:#92400e;padding:0 3px;border-radius:3px;}.usage{margin-top:12px;font-size:12px;padding:8px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:4px;}.usernote{margin-top:10px;font-size:13px;padding:9px 11px;background:#fffbeb;border:1px solid #fde68a;border-radius:4px;white-space:normal;}.pts{margin-top:14px;width:auto;}.pts th,.pts td{padding:3px 10px;}.note{margin-top:12px;font-size:10px;color:#777;}@media print{button{display:none;}}</style></head><body>' +
         '<h1>' + name + ' — Düzeltme / Sapma Tablosu</h1>' +
+        '<p class="sub">Cihaz: ' + esc(name) + (instrument && instrument.id ? ' (' + esc(instrument.id) + ')' : '') + '</p>' +
         '<p class="sub">Seri No: ' + serial + ' &nbsp;·&nbsp; Rapor No: ' + (record.reportNumber || '—') + ' &nbsp;·&nbsp; Kalibrasyon: ' + formatDateForDisplay(record.date) + '</p>' +
         '<p class="sub">Birim: ' + unit + ' &nbsp;·&nbsp; Aralık: ' + corr.rangeMin + ' – ' + corr.rangeMax + ' ' + unit + ' (adım ' + corr.rangeStep + ')</p>' +
         '<div class="usage">' + usage + '</div>' +
+        noteHtml +
         '<table><thead><tr><th style="text-align:left">' + colX + '</th><th>' + colY + '</th><th>' + colD + '</th><th>Sapma %</th></tr></thead><tbody>' + rowsHtml + '</tbody></table>' +
         '<table class="pts"><thead><tr><th>Rapor: Ölçülen</th><th>Rapor: Gerçek</th></tr></thead><tbody>' + ptsHtml + '</tbody></table>' +
         '<p class="note">* «ext» işaretli satırlar kalibrasyon aralığı dışında, lineer ekstrapolasyonla hesaplanmıştır. Değerler rapordaki noktalar arası lineer interpolasyona dayanır.</p>' +
@@ -2765,6 +2770,7 @@ const CorrectionTableEditor = ({ value, instrument, onChange }) => {
                     e(FormInput, { label: "Adım", id: "corrStep", type: "number", step: "any", value: corr.rangeStep, onChange: (ev) => set({ rangeStep: ev.target.value }) })
                 )
             ),
+            e(FormTextarea, { label: "Açıklama / Not (rapora yazılır)", id: "corrNote", value: corr.note, onChange: (ev) => set({ note: ev.target.value }), placeholder: "Ör. Ekran okuması bu bandın içindeyse parça uygundur. Sünger baskı testi kabul aralığı..." }),
             e("div", {},
                 e("label", { className: "block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1" }, "Önizleme"),
                 e(CorrectionTableView, { corr: corr, instrument: instrument })
@@ -2787,6 +2793,8 @@ const CorrectionTableModal = ({ isOpen, onClose, record, instrument }) => {
                 e("button", { type: "button", onClick: () => printCorrectionTable(record, instrument), className: "flex items-center gap-1.5 px-3 py-2 rounded-md bg-sky-600 text-white hover:bg-sky-700 text-sm font-semibold whitespace-nowrap" },
                     e(PrinterIcon, { className: "w-4 h-4" }), "Yazdır / Asılabilir")
             ),
+            corr.note && String(corr.note).trim() && e("div", { className: "text-sm p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 text-amber-900 dark:text-amber-200 whitespace-pre-wrap" },
+                e("span", { className: "font-semibold" }, "Açıklama: "), corr.note),
             e(CorrectionTableView, { corr: corr, instrument: instrument }),
             e("p", { className: "text-xs text-slate-400 dark:text-slate-500" }, "Aralık sınırları dışındaki (ext) değerler lineer ekstrapolasyonla hesaplanır; gerçek sapma farklı olabilir.")
         )
