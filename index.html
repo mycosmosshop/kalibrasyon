@@ -1542,9 +1542,15 @@ return instruments.map(instrument => {
         const sHdrFill   = { font:{name:'Arial',sz:9},                                fill:{fgColor:{rgb:'2E5FA3'},patternType:'solid'}, alignment:{horizontal:'center',vertical:'center'}, border:bdrMid };
         const sHdrFillB  = { font:{name:'Arial',sz:9},                                fill:{fgColor:{rgb:'2E5FA3'},patternType:'solid'}, alignment:{horizontal:'center',vertical:'center'}, border:bdrMB };
         // Bilgi alanı: S1:V4 — soluk mavi, bold koyu lacivert
-        const sInfoT  = { font:{bold:true,color:{rgb:'1E3A5F'},name:'Arial',sz:9}, fill:{fgColor:{rgb:'D6E4F0'},patternType:'solid'}, alignment:{horizontal:'left',vertical:'center',indent:1}, border:bdrMT };
-        const sInfoM  = { font:{bold:true,color:{rgb:'1E3A5F'},name:'Arial',sz:9}, fill:{fgColor:{rgb:'D6E4F0'},patternType:'solid'}, alignment:{horizontal:'left',vertical:'center',indent:1}, border:bdrMid };
-        const sInfoB  = { font:{bold:true,color:{rgb:'1E3A5F'},name:'Arial',sz:9}, fill:{fgColor:{rgb:'D6E4F0'},patternType:'solid'}, alignment:{horizontal:'left',vertical:'center',indent:1}, border:bdrMB };
+        // Bilgi tablosu — etiket (S-T, koyu) | değer (U-V, açık)
+        const mkInfoBdr = (top, bot) => ({ top:{style:top,color:{rgb:'1E3A5F'}}, bottom:{style:bot,color:{rgb:'9AB2CC'}}, left:{style:'medium',color:{rgb:'1E3A5F'}}, right:{style:'thin',color:{rgb:'9AB2CC'}} });
+        const mkValBdr  = (top, bot) => ({ top:{style:top,color:{rgb:'1E3A5F'}}, bottom:{style:bot,color:{rgb:'9AB2CC'}}, left:{style:'thin',color:{rgb:'9AB2CC'}},  right:{style:'medium',color:{rgb:'1E3A5F'}} });
+        const sILblT = { font:{bold:true,color:{rgb:'FFFFFF'},name:'Arial',sz:8}, fill:{fgColor:{rgb:'1E3A5F'},patternType:'solid'}, alignment:{horizontal:'left',vertical:'center',indent:1,wrapText:true}, border:mkInfoBdr('medium','thin') };
+        const sILblM = { font:{bold:true,color:{rgb:'FFFFFF'},name:'Arial',sz:8}, fill:{fgColor:{rgb:'1E3A5F'},patternType:'solid'}, alignment:{horizontal:'left',vertical:'center',indent:1,wrapText:true}, border:mkInfoBdr('thin','thin') };
+        const sILblB = { font:{bold:true,color:{rgb:'FFFFFF'},name:'Arial',sz:8}, fill:{fgColor:{rgb:'1E3A5F'},patternType:'solid'}, alignment:{horizontal:'left',vertical:'center',indent:1,wrapText:true}, border:mkInfoBdr('thin','medium') };
+        const sIValT = { font:{bold:true,color:{rgb:'1E3A5F'},name:'Arial',sz:9}, fill:{fgColor:{rgb:'EBF2FA'},patternType:'solid'}, alignment:{horizontal:'center',vertical:'center'},                      border:mkValBdr('medium','thin') };
+        const sIValM = { font:{bold:true,color:{rgb:'1E3A5F'},name:'Arial',sz:9}, fill:{fgColor:{rgb:'EBF2FA'},patternType:'solid'}, alignment:{horizontal:'center',vertical:'center'},                      border:mkValBdr('thin','thin') };
+        const sIValB = { font:{bold:true,color:{rgb:'1E3A5F'},name:'Arial',sz:9}, fill:{fgColor:{rgb:'EBF2FA'},patternType:'solid'}, alignment:{horizontal:'center',vertical:'center'},                      border:mkValBdr('thin','medium') };
         // Sütun başlıkları: satır 4
         const sColHdr = { font:{bold:true,color:{rgb:'FFFFFF'},name:'Arial',sz:8}, fill:{fgColor:{rgb:'1F4E79'},patternType:'solid'}, alignment:{horizontal:'center',vertical:'center',wrapText:true}, border:bdrM };
         // Veri hücreleri
@@ -1581,11 +1587,11 @@ return instruments.map(instrument => {
         addMerge(2, 3, 2, 17); setS(2, 3, '', 's', sHdrFill);
         addMerge(3, 3, 3, 17); setS(3, 3, '', 's', sHdrFillB);
 
-        // Bilgi: S-V (cols 18-21), 4 sütun
-        addMerge(0, 18, 0, 21); setS(0, 18, 'DOK NO.: PL12', 's', sInfoT);
-        addMerge(1, 18, 1, 21); setS(1, 18, 'YAYIN TARİHİ: 18.12.2006', 's', sInfoM);
-        addMerge(2, 18, 2, 21); setS(2, 18, 'REV. NO/TARİH: 10/12.12.2019', 's', sInfoM);
-        addMerge(3, 18, 3, 21); setS(3, 18, 'SAYFA: 1/' + (Math.ceil(list.length / 30) || 1), 's', sInfoB);
+        // Bilgi: S-T(18-19)=Etiket | U-V(20-21)=Değer — 4 satır
+        addMerge(0,18,0,19); setS(0,18,'DOKÜMAN NO',  's',sILblT);  addMerge(0,20,0,21); setS(0,20,'PL12',                                         's',sIValT);
+        addMerge(1,18,1,19); setS(1,18,'YAYIN TARİHİ','s',sILblM);  addMerge(1,20,1,21); setS(1,20,'18.12.2006',                                   's',sIValM);
+        addMerge(2,18,2,19); setS(2,18,'REV. NO/TARİH','s',sILblM); addMerge(2,20,2,21); setS(2,20,'10/12.12.2019',                                's',sIValM);
+        addMerge(3,18,3,19); setS(3,18,'SAYFA',        's',sILblB);  addMerge(3,20,3,21); setS(3,20,'1/' + (Math.ceil(list.length / 30) || 1),      's',sIValB);
 
         // ── Sütun Başlıkları (satır 4) ──────────────────────────────────────────
         const COLS = [
