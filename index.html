@@ -567,10 +567,28 @@ const Tooltip = ({ content, children, width = 'w-72' }) => {
     );
 };
 
-const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, confirmText = "Evet, Sil", confirmColor = "bg-red-600 hover:bg-red-700" }) => (
+// Silinecek kayitlarin Drive dosyalarindan, GERIYE KALAN hicbir kayitta
+// kullanilmayanlar. Ayni dosya birden cok kayda bagli olabilir; baskasinin
+// kullandigi dosya silinirse o kayitlarin baglantisi kirilir.
+function silinecekDriveDosyalari(silinenKayitlar, kalanKayitlar) {
+    const kalan = new Set();
+    (kalanKayitlar || []).forEach(r => {
+        const id = r && r.reportFile && r.reportFile.driveFileId;
+        if (id) kalan.add(id);
+    });
+    const cikti = [];
+    (silinenKayitlar || []).forEach(r => {
+        const id = r && r.reportFile && r.reportFile.driveFileId;
+        if (id && !kalan.has(id) && cikti.indexOf(id) < 0) cikti.push(id);
+    });
+    return cikti;
+}
+
+const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, ek, confirmText = "Evet, Sil", confirmColor = "bg-red-600 hover:bg-red-700" }) => (
     e(Modal, { isOpen: isOpen, onClose: onClose, title: title, size: "max-w-md" },
-        e("p", { className: "text-slate-600 dark:text-slate-300 mb-6" }, message),
-        e("div", { className: "flex justify-end gap-3" },
+        e("p", { className: "text-slate-600 dark:text-slate-300 mb-4" }, message),
+        ek || null,
+        e("div", { className: "flex justify-end gap-3 mt-6" },
             e("button", { type: "button", onClick: onClose, className: "px-4 py-2 rounded-md text-slate-700 bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600 font-semibold transition-colors" },
                 "İptal"
             ),
@@ -806,6 +824,7 @@ const App = () => {
     const [editingRecord, setEditingRecord] = useState(null);
     const [instrumentIdForNewRecord, setInstrumentIdForNewRecord] = useState(null);
     const [itemToDelete, setItemToDelete] = useState(null);
+    const [driveDaSil, setDriveDaSil] = useState(true);
     const [dataToExport, setDataToExport] = useState([]);
     const [isGenerating, setIsGenerating] = useState(false);
     const [isUpdateAvailable, setUpdateAvailable] = useState(false);
@@ -1208,8 +1227,26 @@ return instruments.map(instrument => {
         toastService.success(`${editingRecordIdsForBulk.length} kayıt başarıyla güncellendi.`);
     };
 
-    const confirmDelete = () => {
+    // Onay penceresinde ne silinecegi SAYIYLA gorunsun; Drive silme geri
+    // alinmasi zor oldugu icin kac dosyaya dokunulacagi acikca yazsin.
+    const silmeOzeti = useMemo(() => {
+        if (!itemToDelete) return null;
+        const { type, ids } = itemToDelete;
+        const cihazMi = (type === 'instrument' || type === 'bulk_instruments');
+        const silinen = cihazMi
+            ? calibrationRecords.filter(r => ids.includes(r.instrumentId))
+            : calibrationRecords.filter(r => ids.includes(r.id));
+        const silinenIdler = new Set(silinen.map(r => r.id));
+        const kalan = calibrationRecords.filter(r => !silinenIdler.has(r.id));
+        return {
+            cihazMi, cihaz: cihazMi ? ids.length : 0, kayit: silinen.length,
+            dosyalar: silinecekDriveDosyalari(silinen, kalan)
+        };
+    }, [itemToDelete, calibrationRecords]);
+
+    const confirmDelete = async () => {
         if (!itemToDelete) return;
+        const driveIdler = (driveDaSil && silmeOzeti) ? silmeOzeti.dosyalar : [];
     
         const { type, ids } = itemToDelete;
     
@@ -1251,6 +1288,21 @@ return instruments.map(instrument => {
         
         setConfirmDeleteOpen(false);
         setItemToDelete(null);
+
+        // Kayitlar gittikten SONRA Drive'a dokunulur: yerel silme basarisiz
+        // olursa dosya bosuna silinmesin.
+        if (driveIdler.length) {
+            toastService.info(driveIdler.length + " rapor dosyası Drive'dan siliniyor…");
+            let ok = 0, hata = 0;
+            for (const fid of driveIdler) {
+                try {
+                    const res = await deleteFromDrive(fid);
+                    if (res && res.success) ok++; else hata++;
+                } catch (err) { hata++; }
+            }
+            if (ok) toastService.success(ok + " rapor dosyası Drive çöp kutusuna taşındı ✓");
+            if (hata) toastService.error(hata + " dosya Drive'dan silinemedi.");
+        }
     };
 
     const handleShowInstrumentDetail = (instrumentId) => {
@@ -2157,7 +2209,20 @@ return instruments.map(instrument => {
                 onClose: () => setConfirmDeleteOpen(false),
                 onConfirm: confirmDelete,
                 title: "Silme Onayı",
-                message: "Bu öğeyi/öğeleri silmek istediğinizden emin misiniz? Bu işlem geri alınamaz ve cihaza bağlı tüm kayıtlar da silinir."
+                message: !silmeOzeti ? "Silmek istediğinizden emin misiniz?"
+                    : silmeOzeti.cihazMi
+                        ? silmeOzeti.cihaz + " cihaz ve bağlı " + silmeOzeti.kayit + " kayıt silinecek. Bu işlem geri alınamaz."
+                        : silmeOzeti.kayit + " kayıt silinecek. Bu işlem geri alınamaz.",
+                ek: (silmeOzeti && silmeOzeti.dosyalar.length)
+                    ? e("label", { className: "flex items-start gap-3 p-3 rounded-lg bg-slate-100 dark:bg-slate-900/50 cursor-pointer select-none" },
+                        e("input", { type: "checkbox", className: "h-4 w-4 mt-0.5", checked: driveDaSil,
+                            onChange: (ev) => setDriveDaSil(ev.target.checked) }),
+                        e("span", { className: "text-sm text-slate-700 dark:text-slate-200" },
+                            "Drive'daki ", e("strong", {}, String(silmeOzeti.dosyalar.length)), " rapor dosyası da silinsin",
+                            e("span", { className: "block text-xs text-slate-500 dark:text-slate-400 mt-1" },
+                                "Çöp kutusuna taşınır. Başka kayıtların da kullandığı dosyalara dokunulmaz."))
+                    )
+                    : null
             })
         )
     );
@@ -5367,7 +5432,7 @@ root.render(e(App));
   <!-- App Version Badge -->
   <div id="app-version" class="fixed bottom-3 right-3 z-40 pointer-events-none">
     <span class="inline-block px-2 py-1 text-xs rounded border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 shadow-sm">
-      Caltrack ver10.14.0
+      Caltrack ver10.15.0
     </span>
   </div>
 

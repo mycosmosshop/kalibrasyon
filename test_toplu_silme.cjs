@@ -1,0 +1,107 @@
+// Secilen kayitlari silerken Drive'daki rapor dosyalari da silinsin.
+//
+// Asil risk BASKASININ dosyasini silmek: ayni Drive dosyasi birden cok kayda
+// bagli olabilir (bir sertifika iki kayda; 10.14 oncesi bir defter yirmi
+// kayda). Silinen kaydin dosyasi geride kalan bir kayitta da kullaniliyorsa
+// silinmemeli, yoksa o kayitlarin rapor baglantisi sessizce kirilir.
+const fs = require('fs'), assert = require('assert');
+const KOK = 'C:/Users/User/Desktop/_erp_deploy/kalibrasyon-clone/';
+const src = fs.readFileSync(KOK + 'index.html', 'utf8');
+
+function govde(bas) {
+    const i = src.indexOf(bas);
+    assert(i > 0, bas + ' yok');
+    let d = 0, b = false, k = i;
+    for (; k < src.length; k++) {
+        if (src[k] === '{') { d++; b = true; }
+        else if (src[k] === '}') { d--; if (b && d === 0) { k++; break; } }
+    }
+    return src.slice(i, k);
+}
+const secilen = new Function(govde('function silinecekDriveDosyalari(') +
+    '\nreturn silinecekDriveDosyalari;')();
+
+const dosyali = (id, fid) => ({ id, instrumentId: 'C1', reportFile: { name: fid + '.pdf', driveFileId: fid } });
+const dosyasiz = (id) => ({ id, instrumentId: 'C1' });
+
+// 1) Her kaydin kendi dosyasi: hepsi silinir
+{
+    const silinen = [dosyali('K1', 'f1'), dosyali('K2', 'f2'), dosyali('K3', 'f3')];
+    assert.deepStrictEqual(secilen(silinen, []), ['f1', 'f2', 'f3'], '1');
+    console.log('✓ 1  kendi dosyası olan kayıtların dosyaları siliniyor');
+}
+
+// 2) ASIL KORUMA: geride kalan bir kayit da kullaniyorsa SILINMEZ
+{
+    const silinen = [dosyali('K1', 'ortak'), dosyali('K2', 'f2')];
+    const kalan = [dosyali('K9', 'ortak')];
+    assert.deepStrictEqual(secilen(silinen, kalan), ['f2'],
+        '2: başka kaydın kullandığı dosya siliniyor — o kaydın raporu kırılır');
+    console.log('✓ 2  geride kalan kaydın da kullandığı dosyaya dokunulmuyor');
+}
+
+// 3) Yirmi kayit ayni deftere bagliysa (10.14 oncesi) ve 19'u silinirse dosya kalir
+{
+    const hepsi = [];
+    for (let i = 1; i <= 20; i++) hepsi.push(dosyali('K' + i, 'defter'));
+    const silinen = hepsi.slice(0, 19), kalan = hepsi.slice(19);
+    assert.deepStrictEqual(secilen(silinen, kalan), [], '3a: son kaydın defteri silindi');
+    // hepsi silinirse dosya da gider, bir kez
+    assert.deepStrictEqual(secilen(hepsi, []), ['defter'], '3b: ' + secilen(hepsi, []).length);
+    console.log('✓ 3  ortak defter ancak son kayıt da silinince kaldırılıyor, bir kez');
+}
+
+// 4) Dosyasi olmayan kayitlar sorun cikarmiyor
+{
+    assert.deepStrictEqual(secilen([dosyasiz('K1'), dosyasiz('K2')], []), [], '4a');
+    assert.deepStrictEqual(secilen([dosyasiz('K1'), dosyali('K2', 'f2')], []), ['f2'], '4b');
+    assert.deepStrictEqual(secilen([], []), [], '4c');
+    assert.deepStrictEqual(secilen(null, null), [], '4d');
+    console.log('✓ 4  dosyası olmayan kayıtlar atlanıyor, boş liste patlamıyor');
+}
+
+// 5) Yalniz tarayicida tutulan dosya (Drive kimligi yok) Drive'a gonderilmiyor
+{
+    const yerel = { id: 'K1', reportFile: { name: 'x.pdf', data: 'data:application/pdf;base64,AAA' } };
+    assert.deepStrictEqual(secilen([yerel], []), [], '5: Drive kimliği olmayan dosya listeye girdi');
+    console.log('✓ 5  Drive kimliği olmayan (yerel) dosya için Drive isteği yapılmıyor');
+}
+
+// 6) Ayni dosya iki silinen kayitta: tek sefer
+{
+    const silinen = [dosyali('K1', 'f1'), dosyali('K2', 'f1'), dosyali('K3', 'f1')];
+    assert.deepStrictEqual(secilen(silinen, []), ['f1'], '6: aynı dosya için birden çok istek');
+    console.log('✓ 6  aynı dosya birden çok kayıtta olsa tek silme isteği');
+}
+
+// 7) Uygulama tarafi: onay penceresi, kutu ve silme sirasi
+{
+    assert(/const \[driveDaSil, setDriveDaSil\] = useState\(true\)/.test(src), '7a: seçenek yok');
+    assert(/const silmeOzeti = useMemo/.test(src), '7b: silme özeti yok');
+    assert(/const confirmDelete = async \(\)/.test(src), '7c: silme eşzamansız değil, Drive beklenemez');
+    assert(/rapor dosyası da silinsin/.test(src), '7d: onay penceresinde kutu yok');
+    assert(/await deleteFromDrive\(fid\)/.test(src), '7e: Drive silme çağrılmıyor');
+    console.log('✓ 7  onay penceresinde sayı + seçenek var, Drive silme bekleniyor');
+}
+
+// 8) Drive silme YEREL silmeden SONRA yapiliyor
+{
+    const g = govde('const confirmDelete = async ()');
+    const yerelSon = g.lastIndexOf('setCalibrationRecords');
+    const driveIlk = g.indexOf('deleteFromDrive');
+    assert(yerelSon > 0 && driveIlk > 0, '8a: bölümler bulunamadı');
+    assert(driveIlk > yerelSon,
+        '8b: Drive dosyası yerel kayıt silinmeden önce siliniyor — yerel silme başarısız olursa dosya boşuna gider');
+    console.log('✓ 8  önce yerel kayıt siliniyor, sonra Drive dosyası');
+}
+
+// 9) Cihaz silmede de bagli kayitlarin dosyalari hesaplaniyor
+{
+    const g = govde('const silmeOzeti = useMemo');
+    assert(/instrumentId/.test(g), '9a: cihaz silmede bağlı kayıtlar dikkate alınmıyor');
+    assert(/bulk_instruments/.test(g), '9b: toplu cihaz silme kapsanmıyor');
+    assert(/silinecekDriveDosyalari\(silinen, kalan\)/.test(g), '9c: koruma çağrılmıyor');
+    console.log('✓ 9  cihaz silmede de bağlı kayıtların dosyaları kapsanıyor');
+}
+
+console.log('\nTüm senaryolar geçti.');
