@@ -1184,16 +1184,6 @@ return instruments.map(instrument => {
         setConfirmDeleteOpen(true);
     };
 
-    // Cihazlari TUTUP yalnizca gecmislerini temizle. Ayni onay penceresine
-    // gider: kac kayit ve kac Drive dosyasi silinecegi orada yazar.
-    const handleBulkDeleteInstrumentRecords = (instrumentIds) => {
-        const ids = calibrationRecords
-            .filter(r => instrumentIds.includes(r.instrumentId))
-            .map(r => r.id);
-        if (!ids.length) { toastService.info('Seçili cihazlarda silinecek kayıt yok.'); return; }
-        handleBulkDeleteRecords(ids);
-    };
-
     const handleBulkInstrumentEditSave = (updatedFields) => {
         const cleanUpdatedFields = Object.fromEntries(
             Object.entries(updatedFields).filter(([_, v]) => v !== null && v !== undefined && v !== '')
@@ -2138,7 +2128,6 @@ return instruments.map(instrument => {
                             onDataImport: () => setDataImportOpen(true),
                             onExport: handleInstrumentExportClick,
                             onBulkDelete: handleBulkDelete,
-                            onBulkDeleteInstrumentRecords: handleBulkDeleteInstrumentRecords,
                             onBulkEdit: (ids) => { setEditingInstrumentIdsForBulk(ids); setBulkInstrumentEditModalOpen(true); },
                             onSendNotification: handleSendFilteredNotification,
                             initialFilter: instrumentListInitialFilter,
@@ -2807,7 +2796,7 @@ const QuickFilterButton = ({ label, count, filterStatus, activeStatus, setFilter
     )
 );
 
-const InstrumentList = ({ instruments, onAddInstrument, onEditInstrument, onDeleteInstrument, onShowDetail, onAddRecord, onDataImport, onExport, onBulkDelete, onBulkEdit, onBulkDeleteInstrumentRecords, onSendNotification, onNavigateToRecords, initialFilter, seciliKonum, setSeciliKonum }) => {
+const InstrumentList = ({ instruments, onAddInstrument, onEditInstrument, onDeleteInstrument, onShowDetail, onAddRecord, onDataImport, onExport, onBulkDelete, onBulkEdit, onSendNotification, onNavigateToRecords, initialFilter, seciliKonum, setSeciliKonum }) => {
     const [filters, setFilters] = useState({
         searchTerm: '',
         status: '',
@@ -3111,9 +3100,6 @@ const InstrumentList = ({ instruments, onAddInstrument, onEditInstrument, onDele
                      e("div", { className: "flex items-center gap-2" },
                          e("button", { onClick: () => onBulkEdit(selectedIds), className: "px-3 py-1 text-sm rounded-md bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-600 border border-slate-300 dark:border-slate-600" },
                              "Toplu Düzenle"
-                         ),
-                         e("button", { onClick: () => onBulkDeleteInstrumentRecords(selectedIds), title: "Cihazlar kalsın, yalnızca kalibrasyon/doğrulama kayıtları silinsin", className: "px-3 py-1 text-sm rounded-md bg-white dark:bg-slate-700 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 border border-red-300 dark:border-red-700" },
-                             "Sadece Kayıtları Sil"
                          ),
                          e("button", { onClick: () => onBulkDelete(selectedIds), title: "Cihazları ve tüm kayıtlarını sil", className: "px-3 py-1 text-sm rounded-md bg-red-500 text-white hover:bg-red-600" },
                              "Cihazları Sil"
@@ -5518,7 +5504,7 @@ root.render(e(App));
   <!-- App Version Badge -->
   <div id="app-version" class="fixed bottom-3 right-3 z-40 pointer-events-none">
     <span class="inline-block px-2 py-1 text-xs rounded border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 shadow-sm">
-      Caltrack ver10.18.1
+      Caltrack ver10.18.2
     </span>
   </div>
 

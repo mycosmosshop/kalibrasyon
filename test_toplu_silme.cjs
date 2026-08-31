@@ -138,41 +138,34 @@ const dosyasiz = (id) => ({ id, instrumentId: 'C1' });
     console.log('✓ 11 silinen kayıt ve cihaz değişimi seçimi kirletmiyor');
 }
 
-// 12) Cihazlar ekraninda "Sadece Kayitlari Sil": cihazlar KALIR
+// 12) Kayit silme TEK yerde: Tum Kayitlar ekraninda
 {
-    const bas = src.indexOf('const handleBulkDeleteInstrumentRecords');
-    assert(bas > 0, '12a: cihazları tutup kayıtları silme yolu yok');
-    // Yalnizca bu fonksiyonun govdesi: bir sonraki bildirime kadar
-    const g = src.slice(bas, src.indexOf('\n    const ', bas + 10));
-    // Kayit silme yoluna gitmeli; cihaz silme yoluna DEGIL
-    assert(/handleBulkDeleteRecords\(ids\)/.test(g), '12b: kayıt silme yoluna gitmiyor');
-    assert(!/setInstruments/.test(g), '12c: cihazlara dokunuyor — cihazlar kalmalı');
-    assert(/r\.instrumentId/.test(g), '12d: seçili cihazların kayıtları toplanmıyor');
-    assert(/silinecek kayıt yok/.test(g), '12e: kayıt yokken sessiz kalıyor');
-    assert(/"Sadece Kayıtları Sil"/.test(src), '12f: düğme yok');
-    assert(/onBulkDeleteInstrumentRecords: handleBulkDeleteInstrumentRecords/.test(src), '12g: bağlanmamış');
-    console.log('✓ 12 "Sadece Kayıtları Sil" cihazları silmeden geçmişi temizliyor');
+    // Cihazlar ekranina da eklenmisti; ayni is iki yerde durdugu ve cihaz
+    // secilen bir ekranda kayit silmek yaniltici oldugu icin geri alindi.
+    assert(!/onBulkDeleteInstrumentRecords/.test(src), '12a: kaldırılan yol geri gelmiş');
+    assert(!/"Sadece Kayıtları Sil"/.test(src), '12b: çift düğme geri gelmiş');
+    assert(/"Seçili Kayıtları Sil"/.test(src), '12c: kayıt silme düğmesi yok');
+    console.log('✓ 12 kayıt silme yalnızca Tüm Kayıtlar ekranında');
 }
 
-// 13) Iki dugme birbirine karismiyor
+// 13) Cihazlar ekraninda yalnizca cihaz islemleri var
 {
-    assert(/"Cihazları Sil"/.test(src), '13a: cihaz silme düğmesi adlandırılmamış');
-    const i = src.indexOf('"Sadece Kayıtları Sil"'), j = src.indexOf('"Cihazları Sil"');
-    assert(i > 0 && j > i, '13b: düğme sırası');
-    // Cihaz silme hala cihaz yoluna gitmeli
-    const k = src.slice(i - 400, j + 400);
-    assert(/onBulkDelete\(selectedIds\)/.test(k), '13c: cihaz silme bozulmuş');
-    assert(/onBulkDeleteInstrumentRecords\(selectedIds\)/.test(k), '13d: kayıt silme bağlanmamış');
-    console.log('✓ 13 "Cihazları Sil" eski davranışını koruyor, ikisi ayrı');
+    const bas = src.indexOf('cihaz seçildi.');
+    assert(bas > 0, '13a: cihaz seçim çubuğu yok');
+    const g = src.slice(bas, bas + 900);
+    assert(/"Toplu Düzenle"/.test(g), '13b: toplu düzenle kayboldu');
+    assert(/"Cihazları Sil"/.test(g), '13c: cihaz silme kayboldu');
+    assert(!/Kayıtları Sil/.test(g), '13d: cihaz ekranında kayıt silme var');
+    assert(/onBulkDelete\(selectedIds\)/.test(g), '13e: cihaz silme bağlantısı bozuk');
+    console.log('✓ 13 Cihazlar ekranında yalnızca cihaz işlemleri var');
 }
 
 // 14) Dugme adlari ne sildiklerini soyluyor (belirsiz "Toplu Sil" kalmadi)
 {
     assert(!/"Toplu Sil"/.test(src), '14a: belirsiz "Toplu Sil" etiketi duruyor');
     assert(/"Seçili Kayıtları Sil"/.test(src), '14b: Tüm Kayıtlar ekranındaki etiket');
-    assert(/"Sadece Kayıtları Sil"/.test(src), '14c: Cihazlar ekranındaki kayıt silme');
-    assert(/"Cihazları Sil"/.test(src), '14d: Cihazlar ekranındaki cihaz silme');
-    console.log('✓ 14 üç düğmenin de adı ne sildiğini söylüyor');
+    assert(/"Cihazları Sil"/.test(src), '14c: Cihazlar ekranındaki etiket');
+    console.log('✓ 14 düğme adları ne sildiğini söylüyor');
 }
 
 console.log('\nTüm senaryolar geçti.');
