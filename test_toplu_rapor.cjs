@@ -175,9 +175,49 @@ const pdfTanim = PDFLER.map(ad => ({ ad, sayfalar: null }));
     assert(/const handleAttachReports = \(guncelleme\)/.test(src), '11b: kayıt güncelleyici yok');
     assert(/e\(TopluRaporModal, \{ isOpen: topluRaporAcik/.test(src), '11c: modal ekrana konmamış');
     assert(/"Toplu Rapor Yükle"/.test(src), '11d: düğme yok');
-    assert(/Dosya Drive'a BIR KEZ yuklenir/.test(src), '11e: dosya her hedef için yeniden yükleniyor olabilir');
+    assert(/Drive'a BIR KEZ yuklenir/.test(src), '11e: sertifika her hedef için yeniden yükleniyor olabilir');
     assert(/eşleşmeyen sayfa: /.test(src), '11f: eşleşmeyen sayfalar önizlemede gösterilmiyor');
+    assert(/action: 'formSayfalari'/.test(src), '11g: defter sayfalara ayrılmıyor');
     console.log('✓ 11 düğme, pencere, kayıt güncelleme ve uyarı satırı bağlı');
+}
+
+// 12) Her kayda KENDI sayfasinin PDF'i baglaniyor (asil istek)
+{
+    const esle = new Function(govde('function sayfaDosyalariniEsle(') +
+        '\nreturn sayfaDosyalariniEsle;')();
+    const r = raporEslestir(defterTanim, KAYITLAR, CIHAZLAR, false);
+    // sunucunun donduruguyle ayni bicim
+    const sayfaPdf = KIMLIKLER.map(k => ({ sayfa: k.sayfa, ad: 'FR39 - ' + k.sayfa + '.pdf',
+        fileId: 'id-' + k.sayfa, driveUrl: 'u-' + k.sayfa, previewUrl: 'p-' + k.sayfa }));
+    const g = esle(r[0].hedefler, sayfaPdf);
+
+    assert.strictEqual(g.length, 20, '12a: güncellenen kayıt ' + g.length);
+    // SM8'in kaydina SM8'in PDF'i gitmeli
+    const hedef8 = r[0].hedefler.find(h => h.sayfa === 'SM8');
+    const g8 = g.find(x => x.kayitId === hedef8.kayitId);
+    assert.strictEqual(g8.reportFile.driveFileId, 'id-SM8', '12b: SM8 kaydına ' + g8.reportFile.driveFileId);
+    assert.strictEqual(g8.reportFile.name, 'FR39 - SM8.pdf', '12c: dosya adı ' + g8.reportFile.name);
+    // hicbir kayit baskasinin sayfasini almamali
+    const yanlis = g.filter(x => {
+        const h = r[0].hedefler.find(y => y.kayitId === x.kayitId);
+        return x.reportFile.driveFileId !== 'id-' + h.sayfa;
+    });
+    assert.strictEqual(yanlis.length, 0, '12d: ' + yanlis.length + ' kayda başkasının sayfası bağlandı');
+    console.log('✓ 12 her kayda kendi sayfasının PDF\'i bağlanıyor (SM8 kaydına SM8 formu)');
+}
+
+// 13) PDF'i cikmayan sayfaya YANLIS dosya baglanmiyor, bos birakiliyor
+{
+    const esle = new Function(govde('function sayfaDosyalariniEsle(') +
+        '\nreturn sayfaDosyalariniEsle;')();
+    const r = raporEslestir(defterTanim, KAYITLAR, CIHAZLAR, false);
+    const eksik = KIMLIKLER.filter(k => k.sayfa !== 'SM8').map(k => ({ sayfa: k.sayfa,
+        ad: 'FR39 - ' + k.sayfa + '.pdf', fileId: 'id-' + k.sayfa }));
+    const g = esle(r[0].hedefler, eksik);
+    const hedef8 = r[0].hedefler.find(h => h.sayfa === 'SM8');
+    assert.strictEqual(g.length, 19, '13a: ' + g.length);
+    assert(!g.some(x => x.kayitId === hedef8.kayitId), '13b: SM8 kaydına başka sayfa bağlandı');
+    console.log('✓ 13 sayfası çıkarılamayan kayıt boş kalıyor, yanlış dosya almıyor');
 }
 
 console.log('\nTüm senaryolar geçti.');

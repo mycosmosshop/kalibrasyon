@@ -71,24 +71,92 @@ function durumOzeti() {
 // ---- Drive PDF Yükleme ----
 var DRIVE_FOLDER_NAME = 'Kalibrasyon Raporları';
 
+function _raporKlasoru(subfolder) {
+  var rootFolders = DriveApp.getFoldersByName(DRIVE_FOLDER_NAME);
+  var root = rootFolders.hasNext() ? rootFolders.next() : DriveApp.createFolder(DRIVE_FOLDER_NAME);
+  if (!subfolder) return root;
+  var sub = root.getFoldersByName(subfolder);
+  return sub.hasNext() ? sub.next() : root.createFolder(subfolder);
+}
+
+function _paylasilanDosya(folder, blob) {
+  var file = folder.createFile(blob);
+  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  var id = file.getId();
+  return { fileId: id,
+    driveUrl: 'https://drive.google.com/file/d/' + id + '/view?usp=sharing',
+    previewUrl: 'https://drive.google.com/file/d/' + id + '/preview' };
+}
+
 function uploadFileToDrive(base64Data, fileName, mimeType, subfolder) {
   try {
-    var rootFolders = DriveApp.getFoldersByName(DRIVE_FOLDER_NAME);
-    var root = rootFolders.hasNext() ? rootFolders.next() : DriveApp.createFolder(DRIVE_FOLDER_NAME);
-    var folder = root;
-    if (subfolder) {
-      var sub = root.getFoldersByName(subfolder);
-      folder = sub.hasNext() ? sub.next() : root.createFolder(subfolder);
-    }
+    var folder = _raporKlasoru(subfolder);
     var bytes = Utilities.base64Decode(base64Data);
     var blob = Utilities.newBlob(bytes, mimeType || 'application/pdf', fileName);
-    var file = folder.createFile(blob);
-    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-    var id = file.getId();
-    return { success: true, fileId: id,
-      driveUrl: 'https://drive.google.com/file/d/' + id + '/view?usp=sharing',
-      previewUrl: 'https://drive.google.com/file/d/' + id + '/preview' };
+    var bilgi = _paylasilanDosya(folder, blob);
+    return { success: true, fileId: bilgi.fileId, driveUrl: bilgi.driveUrl, previewUrl: bilgi.previewUrl };
   } catch (err) { return { success: false, error: String(err) }; }
+}
+
+// ---- Cok sayfali dogrulama defterini SAYFA SAYFA PDF'e ayir ----
+// Kullanicinin dosyasi DEGISTIRILMEZ: Drive'da gecici bir Google E-Tablo'ya
+// donusturulur, her sekme ayri PDF olarak disa aktarilir, gecici kopya silinir.
+// Boylece her kayda kendi FR39 sayfasi baglanir.
+function formSayfalariniAyir(base64Data, fileName, mimeType, subfolder) {
+  var geciciId = null;
+  try {
+    geciciId = _eTablayaDonustur(base64Data,
+      mimeType || 'application/vnd.ms-excel', 'gecici-' + fileName);
+    var ss = SpreadsheetApp.openById(geciciId);
+    var folder = _raporKlasoru(subfolder || 'Doğrulama Formları');
+    var token = ScriptApp.getOAuthToken();
+    var taban = String(fileName).replace(/\.[^.]+$/, '');
+    var sayfalar = [], hatali = [];
+    ss.getSheets().forEach(function (sh) {
+      var url = 'https://docs.google.com/spreadsheets/d/' + geciciId +
+        '/export?format=pdf&gid=' + sh.getSheetId() +
+        '&size=A4&portrait=false&fitw=true&gridlines=false&printtitle=false&sheetnames=false' +
+        '&top_margin=0.3&bottom_margin=0.3&left_margin=0.3&right_margin=0.3';
+      var res = UrlFetchApp.fetch(url, { muteHttpExceptions: true,
+        headers: { Authorization: 'Bearer ' + token } });
+      if (res.getResponseCode() !== 200) { hatali.push(sh.getName()); return; }
+      var ad = taban + ' - ' + sh.getName() + '.pdf';
+      var bilgi = _paylasilanDosya(folder, res.getBlob().setName(ad));
+      sayfalar.push({ sayfa: sh.getName(), ad: ad, fileId: bilgi.fileId,
+        driveUrl: bilgi.driveUrl, previewUrl: bilgi.previewUrl });
+    });
+    return { success: true, sayfalar: sayfalar, hatali: hatali };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  } finally {
+    if (geciciId) { try { DriveApp.getFileById(geciciId).setTrashed(true); } catch (e2) {} }
+  }
+}
+
+// Excel dosyasini Google E-Tablo'ya cevir. Gelismis Drive servisi gerekmesin
+// diye Drive API'ye dogrudan multipart istek atilir; script zaten Drive
+// yetkisine sahip (DriveApp kullaniyor).
+// Govde BASTAN SONA METIN: dosya base64 olarak zaten geliyor, cozup bayt
+// birlestirmeye gerek yok (getBytes().concat eski calisma ortaminda yok).
+function _eTablayaDonustur(base64Data, mimeType, ad) {
+  var sinir = 'sanifoam' + Utilities.getUuid().replace(/-/g, '');
+  var meta = JSON.stringify({ name: ad, mimeType: 'application/vnd.google-apps.spreadsheet' });
+  var govde =
+    '--' + sinir + '\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n' + meta + '\r\n' +
+    '--' + sinir + '\r\nContent-Type: ' + mimeType +
+    '\r\nContent-Transfer-Encoding: base64\r\n\r\n' + base64Data + '\r\n' +
+    '--' + sinir + '--\r\n';
+  var res = UrlFetchApp.fetch(
+    'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true', {
+      method: 'post', contentType: 'multipart/related; boundary=' + sinir,
+      payload: govde, muteHttpExceptions: true,
+      headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() }
+    });
+  var o = {};
+  try { o = JSON.parse(res.getContentText()); } catch (e) {}
+  if (!o.id) throw new Error('E-Tabloya dönüştürülemedi (' + res.getResponseCode() + '): ' +
+    String(res.getContentText()).slice(0, 200));
+  return o.id;
 }
 
 function deleteFileFromDrive(fileId) {
@@ -109,6 +177,15 @@ function doPost(e) {
         PropertiesService.getScriptProperties().setProperty('drive_' + body.requestId, JSON.stringify(result));
       }
       return _json(result);
+    }
+
+    // Cok sayfali dogrulama defterini sayfa sayfa PDF'e ayir
+    if (body.action === 'formSayfalari') {
+      var ayrilan = formSayfalariniAyir(body.base64, body.filename, body.mimeType, body.subfolder || '');
+      if (body.requestId) {
+        PropertiesService.getScriptProperties().setProperty('drive_' + body.requestId, JSON.stringify(ayrilan));
+      }
+      return _json(ayrilan);
     }
 
     // Drive PDF silme

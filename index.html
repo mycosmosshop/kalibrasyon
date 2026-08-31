@@ -148,15 +148,42 @@ const e = React.createElement;
 // === Google Drive PDF Yükleme (GAS üzerinden) ===
 let _gasUrl = '';
 
-async function uploadToDrive(file, subfolder) {
-  const gasUrl = _gasUrl || (() => { try { return JSON.parse(localStorage.getItem('settings') || '{}').serviceUrl || ''; } catch(e) { return ''; } })();
-  if (!gasUrl) throw new Error('GAS Servis URL ayarlanmamış (Ayarlar → Servis URL)');
-  const base64 = await new Promise((res, rej) => {
+function _gasAdresi() {
+  return _gasUrl || (() => { try { return JSON.parse(localStorage.getItem('settings') || '{}').serviceUrl || ''; } catch(e) { return ''; } })();
+}
+
+function _base64Oku(file) {
+  return new Promise((res, rej) => {
     const r = new FileReader();
     r.onload = ev => res(ev.target.result.split(',')[1]);
     r.onerror = rej;
     r.readAsDataURL(file);
   });
+}
+
+// Cok sayfali dogrulama defteri (FR39): sunucu her sekmeyi ayri bir PDF'e
+// cikarir. Kullanicinin dosyasi degistirilmez; tarayicida bolmek formun
+// kenarlik/gorsel/bicimini bozardi.
+async function formSayfalariniYukle(file, subfolder) {
+  const gasUrl = _gasAdresi();
+  if (!gasUrl) throw new Error('GAS Servis URL ayarlanmamış (Ayarlar → Servis URL)');
+  const base64 = await _base64Oku(file);
+  const resp = await fetch(gasUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain' },
+    body: JSON.stringify({ action: 'formSayfalari', filename: file.name, base64,
+      mimeType: file.type || 'application/vnd.ms-excel', subfolder: subfolder || '' })
+  });
+  if (!resp.ok) throw new Error('GAS HTTP ' + resp.status);
+  const data = await resp.json();
+  if (!data.success) throw new Error(data.error || 'Sayfalara ayrılamadı');
+  return data;
+}
+
+async function uploadToDrive(file, subfolder) {
+  const gasUrl = _gasAdresi();
+  if (!gasUrl) throw new Error('GAS Servis URL ayarlanmamış (Ayarlar → Servis URL)');
+  const base64 = await _base64Oku(file);
   const resp = await fetch(gasUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain' },
@@ -3532,6 +3559,21 @@ function raporEslestir(dosyalar, kayitlar, cihazlar, uzerineYaz) {
     });
 }
 
+// Sunucudan donen sayfa PDF'lerini hedeflere dagit: her kayda KENDI sayfasi.
+// Sayfasinin PDF'i cikmayan kayda YANLIS dosya baglamaktansa hic baglanmaz.
+function sayfaDosyalariniEsle(hedefler, sayfalar) {
+    const harita = {};
+    (sayfalar || []).forEach(sp => { harita[String(sp.sayfa)] = sp; });
+    const cikti = [];
+    (hedefler || []).forEach(h => {
+        const sp = harita[String(h.sayfa)];
+        if (!sp) return;
+        cikti.push({ kayitId: h.kayitId, reportFile: { name: sp.ad || h.etiket,
+            driveFileId: sp.fileId, driveUrl: sp.driveUrl, previewUrl: sp.previewUrl } });
+    });
+    return cikti;
+}
+
 const TopluRaporModal = ({ isOpen, onClose, records, instruments, onAttachReports }) => {
     const [dosyalar, setDosyalar] = useState([]);      // gercek File nesneleri
     const [eslesme, setEslesme] = useState([]);
@@ -3586,14 +3628,25 @@ const TopluRaporModal = ({ isOpen, onClose, records, instruments, onAttachReport
             if (!es.hedefler.length) continue;
             const file = dosyalar.find(f => f.name === es.ad);
             if (!file) continue;
-            setIlerleme((i + 1) + '/' + eslesme.length + ' — ' + es.ad + ' yükleniyor…');
             try {
-                // Dosya Drive'a BIR KEZ yuklenir; ayni baglanti tum hedeflere verilir.
-                const r = await uploadToDrive(file, 'Raporlar');
-                es.hedefler.forEach(h => guncelleme.push({
-                    kayitId: h.kayitId,
-                    reportFile: { name: h.etiket, driveFileId: r.fileId, driveUrl: r.driveUrl, previewUrl: r.previewUrl }
-                }));
+                if (es.tur === 'form') {
+                    // Defter sunucuda sayfa sayfa PDF'e ayrilir; her kayda kendi sayfasi.
+                    setIlerleme((i + 1) + '/' + eslesme.length + ' — ' + es.ad +
+                        ' sayfalara ayrılıyor (bir dakika sürebilir)…');
+                    const r = await formSayfalariniYukle(file, 'Doğrulama Formları');
+                    const yeni = sayfaDosyalariniEsle(es.hedefler, r.sayfalar);
+                    guncelleme.push(...yeni);
+                    const cikmayan = (r.hatali || []);
+                    if (cikmayan.length) toastService.warning('PDF çıkarılamayan sayfa: ' + cikmayan.join(', '));
+                } else {
+                    // Sertifika: Drive'a BIR KEZ yuklenir, ayni baglanti tum hedeflere verilir.
+                    setIlerleme((i + 1) + '/' + eslesme.length + ' — ' + es.ad + ' yükleniyor…');
+                    const r = await uploadToDrive(file, 'Raporlar');
+                    es.hedefler.forEach(h => guncelleme.push({
+                        kayitId: h.kayitId,
+                        reportFile: { name: h.etiket, driveFileId: r.fileId, driveUrl: r.driveUrl, previewUrl: r.previewUrl }
+                    }));
+                }
             } catch (err) {
                 hata++;
                 toastService.error(es.ad + ': ' + err.message);
@@ -3613,8 +3666,8 @@ const TopluRaporModal = ({ isOpen, onClose, records, instruments, onAttachReport
     return e(Modal, { isOpen, onClose, title: "Toplu Rapor / Sertifika Yükle", size: "max-w-3xl" },
         e("div", { className: "space-y-4" },
             e("p", { className: "text-sm text-slate-600 dark:text-slate-300" },
-                "Sertifika PDF'leri ", e("strong", {}, "Rapor No"), "'ya göre, FR39 doğrulama defteri ise ",
-                e("strong", {}, "sayfa adı ↔ seri no"), " eşleşmesine göre ilgili kayıtlara bağlanır. Dosyalarınız olduğu gibi yüklenir."),
+                "Sertifika PDF'leri ", e("strong", {}, "Rapor No"), "'ya göre bağlanır. FR39 doğrulama defteri ",
+                e("strong", {}, "sayfa sayfa PDF'e ayrılır"), ": her kayda kendi sayfası (SM8 kaydına SM8 formu) yüklenir. Özgün dosyanız değiştirilmez."),
             e("div", { className: "flex flex-wrap items-center gap-3" },
                 e("label", { className: "px-3 py-2 text-sm rounded-md bg-sky-600 text-white hover:bg-sky-700 cursor-pointer" },
                     "Dosya Seç",
@@ -5314,7 +5367,7 @@ root.render(e(App));
   <!-- App Version Badge -->
   <div id="app-version" class="fixed bottom-3 right-3 z-40 pointer-events-none">
     <span class="inline-block px-2 py-1 text-xs rounded border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 shadow-sm">
-      Caltrack ver10.13.0
+      Caltrack ver10.14.0
     </span>
   </div>
 
