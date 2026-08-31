@@ -2101,7 +2101,8 @@ return instruments.map(instrument => {
                         onDeleteInstrument: handleDeleteInstrument,
                         onAddRecord: handleAddRecord,
                         onEditRecord: handleEditRecord,
-                        onDeleteRecord: handleDeleteRecord
+                        onDeleteRecord: handleDeleteRecord,
+                        onBulkDeleteRecords: handleBulkDeleteRecords
                     })
                 );
             case 'all_calibrations':
@@ -3180,12 +3181,24 @@ const InstrumentList = ({ instruments, onAddInstrument, onEditInstrument, onDele
     );
 };
 
-const InstrumentDetailView = ({ instrument, records, onBack, onEditInstrument, onDeleteInstrument, onAddRecord, onEditRecord, onDeleteRecord }) => {
+const InstrumentDetailView = ({ instrument, records, onBack, onEditInstrument, onDeleteInstrument, onAddRecord, onEditRecord, onDeleteRecord, onBulkDeleteRecords }) => {
+    const [secilenler, setSecilenler] = useState([]);
+
+    // Baska cihaza gecilince secim tasinmasin
+    useEffect(() => { setSecilenler([]); }, [instrument && instrument.id]);
+
     if (!instrument) return null;
 
     const sortedRecords = useMemo(() => {
         return records.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     }, [records]);
+
+    // Silinen kayitlar listeden dusunce secimde asili kalmasin
+    const mevcutIdler = sortedRecords.map(r => r.id);
+    const secili = secilenler.filter(id => mevcutIdler.includes(id));
+    const hepsiSecili = secili.length > 0 && secili.length === mevcutIdler.length;
+    const birSec = (id) => setSecilenler(prev =>
+        prev.includes(id) ? prev.filter(x => x !== id) : prev.concat([id]));
 
     const handleDownloadReport = (reportFile) => {
         if (!reportFile) { toastService.error("Rapor dosyası yok."); return; }
@@ -3240,8 +3253,18 @@ const InstrumentDetailView = ({ instrument, records, onBack, onEditInstrument, o
                 e("div", { className: "md:col-span-2 bg-white dark:bg-slate-800 p-6 rounded-lg shadow-md" },
                     e("div", { className: "flex justify-between items-center mb-4 border-b pb-2 dark:border-slate-700" },
                         e("h2", { className: "text-xl font-semibold" }, "Kalibrasyon Geçmişi"),
-                         e("button", { onClick: () => onAddRecord(instrument.id), className: "flex items-center gap-2 px-3 py-1.5 text-sm font-semibold text-white bg-sky-600 rounded-md hover:bg-sky-700 transition-colors" },
-                            e(PlusIcon, { className: "w-4 h-4" }), " Yeni Kayıt"
+                        e("div", { className: "flex items-center gap-2" },
+                            secili.length > 0 && e("button", {
+                                onClick: () => onBulkDeleteRecords(secili),
+                                className: "px-3 py-1.5 text-sm font-semibold text-white bg-red-500 rounded-md hover:bg-red-600"
+                            }, "Seçilenleri Sil (" + secili.length + ")"),
+                            secili.length > 0 && e("button", {
+                                onClick: () => setSecilenler([]),
+                                className: "px-3 py-1.5 text-sm rounded-md bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200"
+                            }, "Seçimi bırak"),
+                            e("button", { onClick: () => onAddRecord(instrument.id), className: "flex items-center gap-2 px-3 py-1.5 text-sm font-semibold text-white bg-sky-600 rounded-md hover:bg-sky-700 transition-colors" },
+                                e(PlusIcon, { className: "w-4 h-4" }), " Yeni Kayıt"
+                            )
                         )
                     ),
                     sortedRecords.length > 0 ? (
@@ -3249,6 +3272,14 @@ const InstrumentDetailView = ({ instrument, records, onBack, onEditInstrument, o
                             e("table", { className: "w-full text-left text-sm" },
                                 e("thead", {},
                                     e("tr", {},
+                                        e("th", { className: "p-2 w-10" },
+                                            e("input", {
+                                                type: "checkbox", className: "h-4 w-4",
+                                                title: "Tümünü seç",
+                                                checked: hepsiSecili,
+                                                onChange: (ev) => setSecilenler(ev.target.checked ? mevcutIdler : [])
+                                            })
+                                        ),
                                         e("th", { className: "p-2" }, "Tarih"),
                                         e("th", { className: "p-2" }, "Tip"),
                                         e("th", { className: "p-2" }, "Sonuç"),
@@ -3258,7 +3289,14 @@ const InstrumentDetailView = ({ instrument, records, onBack, onEditInstrument, o
                                 ),
                                 e("tbody", {},
                                     sortedRecords.map(record => (
-                                        e("tr", { key: record.id, className: "border-t dark:border-slate-700" },
+                                        e("tr", { key: record.id, className: "border-t dark:border-slate-700 " + (secili.includes(record.id) ? "bg-sky-50 dark:bg-sky-900/20" : "") },
+                                            e("td", { className: "p-2" },
+                                                e("input", {
+                                                    type: "checkbox", className: "h-4 w-4",
+                                                    checked: secili.includes(record.id),
+                                                    onChange: () => birSec(record.id)
+                                                })
+                                            ),
                                             e("td", { className: "p-2" }, formatDateForDisplay(record.date)),
                                             e("td", { className: "p-2" }, record.recordType),
                                             e("td", { className: "p-2" }, e(ResultBadge, { result: record.result })),
@@ -5466,7 +5504,7 @@ root.render(e(App));
   <!-- App Version Badge -->
   <div id="app-version" class="fixed bottom-3 right-3 z-40 pointer-events-none">
     <span class="inline-block px-2 py-1 text-xs rounded border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 shadow-sm">
-      Caltrack ver10.16.0
+      Caltrack ver10.17.0
     </span>
   </div>
 

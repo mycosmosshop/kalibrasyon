@@ -104,4 +104,38 @@ const dosyasiz = (id) => ({ id, instrumentId: 'C1' });
     console.log('✓ 9  cihaz silmede de bağlı kayıtların dosyaları kapsanıyor');
 }
 
+// 10) Cihaz Detayi'nda da coklu secim var ve AYNI onay penceresine gidiyor
+{
+    // govde() burada ise yaramaz: ilk suslu parantez, parametrelerin
+    // destructure blogu. Bilesenin tamamini iki isaret arasindan al.
+    const bas = src.indexOf('const InstrumentDetailView = (');
+    const son = src.indexOf('// ===== Kalibrasyon Düzeltme', bas);
+    assert(bas > 0 && son > bas, 'InstrumentDetailView bulunamadı');
+    const g = src.slice(bas, son);
+    assert(/onBulkDeleteRecords/.test(g), '10a: detay sayfasında toplu silme yok');
+    assert(/onBulkDeleteRecords\(secili\)/.test(g), '10b: seçilenler gönderilmiyor');
+    assert(/Seçilenleri Sil/.test(g), '10c: düğme yok');
+    assert(/type: "checkbox"/.test(g), '10d: satırlarda seçim kutusu yok');
+    assert(/Tümünü seç/.test(g), '10e: tümünü seç yok');
+    // Tum Kayitlar ile AYNI islev kullanilmali; Drive korumasi oradan geliyor
+    assert(/onBulkDeleteRecords: handleBulkDeleteRecords/.test(src),
+        '10f: ayrı bir silme yoluna bağlanmış — Drive koruması atlanır');
+    console.log('✓ 10 cihaz detayında çoklu seçim var, aynı onay penceresine gidiyor');
+}
+
+// 11) Listeden dusen kayit secimde asili kalmiyor
+{
+    // govde() burada ise yaramaz: ilk suslu parantez, parametrelerin
+    // destructure blogu. Bilesenin tamamini iki isaret arasindan al.
+    const bas = src.indexOf('const InstrumentDetailView = (');
+    const son = src.indexOf('// ===== Kalibrasyon Düzeltme', bas);
+    assert(bas > 0 && son > bas, 'InstrumentDetailView bulunamadı');
+    const g = src.slice(bas, son);
+    assert(/const secili = secilenler\.filter\(id => mevcutIdler\.includes\(id\)\)/.test(g),
+        '11a: silinen kayıt seçili sayılmaya devam ediyor');
+    assert(/setSecilenler\(\[\]\); \}, \[instrument && instrument\.id\]\)/.test(g),
+        '11b: başka cihaza geçince seçim taşınıyor');
+    console.log('✓ 11 silinen kayıt ve cihaz değişimi seçimi kirletmiyor');
+}
+
 console.log('\nTüm senaryolar geçti.');
