@@ -1,23 +1,4 @@
-<!DOCTYPE html>
-<html lang="tr">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Kalibrasyon Takip Sistemi</title>
-    
-    <!-- PWA -->
-    <link rel="manifest" href="manifest.json">
-    <meta name="theme-color" content="#ffffff">
-    <link rel="apple-touch-icon" href="icon-192.svg">
 
-    <!-- ERP canlı senkron (Supabase): instruments / calibrationRecords / settings -->
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="kalibrasyon-sync.js"></script>
-
-    <script src="https://cdn.tailwindcss.com">
-
-</script>
-<script>
 // --- Global dateKeyOf (fallback to avoid UTC shift and ReferenceError) ---
 (function(){
   if (typeof window !== 'undefined' && !window.dateKeyOf) {
@@ -37,20 +18,9 @@
   }
 })();
 // --- /Global dateKeyOf ---
-</script>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-      body {
-        font-family: 'Inter', sans-serif;
-      }
-    </style>
-<script type="importmap">
+;
+
 {
   "imports": {
     "react": "https://aistudiocdn.com/react@^19.1.1",
@@ -59,23 +29,9 @@
     "react/": "https://aistudiocdn.com/react@^19.1.1/"
   }
 }
-</script>
-<link rel="stylesheet" href="/index.css">
-    <!-- ERP ortak acik/koyu tema (portal ile senkron; yalniz gorunum) -->
-    <script src="https://mycosmosshop.github.io/erp-portal/erp-theme.js"></script>
-</head>
-<body class="bg-slate-100 dark:bg-slate-900">
-  <!-- App Title Bar -->
-  <div id="app-title-bar" class="sticky top-0 z-40 w-full border-b border-slate-200/70 dark:border-slate-700/70 bg-white/80 dark:bg-slate-900/70 backdrop-blur supports-[backdrop-filter]:bg-white/60">
-    <div class="max-w-7xl mx-auto px-4 py-2">
-      <h1 class="text-center text-slate-800 dark:text-slate-100 text-xl md:text-2xl font-semibold tracking-wide">
-        Caltrack Kalibrasyon Takip
-      </h1>
-    </div>
-  </div>
 
-    <div id="root"></div>
-    <script>
+;
+
       (async () => {
         'use strict';
         // --- Gelişmiş Service Worker Kayıt Mantığı ---
@@ -136,8 +92,9 @@
           console.warn('Service Worker kaydı başarısız oldu:', error);
         }
       })();
-    </script>
-    <script type="module">
+    
+;
+
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import ReactDOM from 'react-dom/client';
 import { GoogleGenAI } from "@google/genai";
@@ -4916,15 +4873,3 @@ const CalendarModal = ({ isOpen, onNavigate, onClose, instruments, onOpenInstrum
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(e(App));
 
-</script>
-<script type="module" src="/index.tsx"></script>
-
-  <!-- App Version Badge -->
-  <div id="app-version" class="fixed bottom-3 right-3 z-40 pointer-events-none">
-    <span class="inline-block px-2 py-1 text-xs rounded border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 shadow-sm">
-      Caltrack ver10.9.3
-    </span>
-  </div>
-
-</body>
-</html>
