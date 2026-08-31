@@ -137,7 +137,9 @@ function formSayfalariniAyir(base64Data, fileName, mimeType, subfolder, istenen)
       var url = 'https://docs.google.com/spreadsheets/d/' + geciciId +
         '/export?format=pdf&gid=' + sh.getSheetId() +
         (aralik ? '&range=' + encodeURIComponent(aralik) : '') +
-        '&size=A4&portrait=false&fitw=true&gridlines=false&printtitle=false&sheetnames=false' +
+        // scale=4: TUM icerigi tek sayfaya sigdirir. fitw (genislige sigdir) sagdaki
+        // sutunlari kesiyordu.
+        '&size=A4&portrait=false&scale=4&gridlines=false&printtitle=false&sheetnames=false' +
         '&pagenumbers=false&fzr=false' +
         '&top_margin=0.3&bottom_margin=0.3&left_margin=0.3&right_margin=0.3';
       // Arka arkaya gelen istekler hiz sinirina takiliyor. Basarisiz istek

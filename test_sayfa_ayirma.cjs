@@ -279,7 +279,11 @@ function calistir(ad, o) {
     assert.strictEqual(cagrilar.length, 1, '12a: ' + cagrilar.length);
     assert(/range=A1%3AAM40/.test(cagrilar[0]),
         '12b: aralık verilmiyor — Google tüm ızgarayı basar, arkaya boş sayfa gelir: ' + cagrilar[0]);
-    console.log('✓ 12 yalnızca dolu hücre aralığı basılıyor (arkada boş sayfa kalmıyor)');
+    // fitw (genislige sigdir) sagdaki sutunlari kesiyordu; scale=4 tek sayfaya sigdirir
+    assert(/scale=4/.test(cagrilar[0]), '12c: sayfaya sığdırma yok — sağ sütunlar kesilir');
+    assert(!/fitw=true/.test(cagrilar[0]), '12d: fitw hâlâ var, form kesilebilir');
+    assert(/portrait=false/.test(cagrilar[0]), '12e: yatay değil, form sığmaz');
+    console.log('✓ 12 dolu aralık + sayfaya sığdırma (boş sayfa yok, sağ sütun kesilmiyor)');
 }
 
 // 13) Gecici hata YENIDEN DENENIYOR, sayfa bosuna dusmuyor
