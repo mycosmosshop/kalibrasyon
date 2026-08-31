@@ -128,7 +128,7 @@ function calistir(ad, o) {
     const olusan = [];
     const sayfalar = [{ ad: 'SM1', gid: 111 }, { ad: 'SM2', gid: 222 }, { ad: 'SM20', gid: 333 }];
     const o = {
-        Utilities: { base64Decode: () => DOSYA_BAYT,
+        Utilities: { sleep: () => {}, base64Decode: () => DOSYA_BAYT,
             newBlob: (b, t, n) => ({ getContentType: () => t, getBytes: () => DOSYA_BAYT, getName: () => n }) },
         ScriptApp: { getOAuthToken: () => 'TOKEN123' },
         SpreadsheetApp: { openById: () => ({ getSheets: () => sayfalar.map(s => ({
@@ -161,7 +161,7 @@ function calistir(ad, o) {
 {
     const silinen = [];
     const temel = (fetchFn) => ({
-        Utilities: { base64Decode: () => DOSYA_BAYT, newBlob: (b, t, n) => ({ getContentType: () => t, getBytes: () => DOSYA_BAYT }) },
+        Utilities: { sleep: () => {}, base64Decode: () => DOSYA_BAYT, newBlob: (b, t, n) => ({ getContentType: () => t, getBytes: () => DOSYA_BAYT }) },
         ScriptApp: { getOAuthToken: () => 'T' },
         SpreadsheetApp: { openById: () => ({ getSheets: () => [{ getSheetId: () => 1, getName: () => 'SM1' }] }) },
         DriveApp: { getFileById: (id) => ({ setTrashed: () => silinen.push(id) }),
@@ -183,15 +183,15 @@ function calistir(ad, o) {
 
 // 8) PDF'i cikmayan sayfa bildiriliyor, digerleri yine de uretiliyor
 {
-    let n = 0;
+    // SM1 SUREKLI hata versin: gecici hata artik yeniden deneniyor (bkz. 13)
     const o = {
-        Utilities: { base64Decode: () => DOSYA_BAYT, newBlob: (b, t) => ({ getContentType: () => t, getBytes: () => DOSYA_BAYT }) },
+        Utilities: { sleep: () => {}, base64Decode: () => DOSYA_BAYT, newBlob: (b, t) => ({ getContentType: () => t, getBytes: () => DOSYA_BAYT }) },
         ScriptApp: { getOAuthToken: () => 'T' },
         SpreadsheetApp: { openById: () => ({ getSheets: () => [
             { getSheetId: () => 1, getName: () => 'SM1' },
             { getSheetId: () => 2, getName: () => 'SM2' }] }) },
         DriveApp: { getFileById: () => ({ setTrashed: () => {} }), Access: {}, Permission: {} },
-        UrlFetchApp: { fetch: () => ({ getResponseCode: () => (++n === 1 ? 500 : 200),
+        UrlFetchApp: { fetch: (u) => ({ getResponseCode: () => (/gid=1&/.test(u) ? 500 : 200),
             getBlob: () => ({ setName: (x) => ({ ad: x }) }) }) },
         _eTablayaDonustur: () => 'G', _raporKlasoru: () => 'K',
         _paylasilanDosya: () => ({ fileId: 'i', driveUrl: 'u', previewUrl: 'p' }),
@@ -208,7 +208,7 @@ function calistir(ad, o) {
     const cagrilar = [], olusan = [];
     const sayfalar = [{ ad: 'SM1', gid: 1 }, { ad: 'SM2', gid: 2 }, { ad: 'SM3', gid: 3 }];
     const o = {
-        Utilities: { base64Decode: () => DOSYA_BAYT, newBlob: (b, t, n) => ({ getContentType: () => t, getBytes: () => DOSYA_BAYT }) },
+        Utilities: { sleep: () => {}, base64Decode: () => DOSYA_BAYT, newBlob: (b, t, n) => ({ getContentType: () => t, getBytes: () => DOSYA_BAYT }) },
         ScriptApp: { getOAuthToken: () => 'T' },
         SpreadsheetApp: { openById: () => ({ getSheets: () => sayfalar.map(s => ({
             getSheetId: () => s.gid, getName: () => s.ad })) }) },
@@ -233,7 +233,7 @@ function calistir(ad, o) {
     const cagrilar = [];
     const sayfalar = [{ ad: 'SM1', gid: 1 }, { ad: 'SM2', gid: 2 }];
     const o = {
-        Utilities: { base64Decode: () => DOSYA_BAYT, newBlob: (b, t, n) => ({ getContentType: () => t, getBytes: () => DOSYA_BAYT }) },
+        Utilities: { sleep: () => {}, base64Decode: () => DOSYA_BAYT, newBlob: (b, t, n) => ({ getContentType: () => t, getBytes: () => DOSYA_BAYT }) },
         ScriptApp: { getOAuthToken: () => 'T' },
         SpreadsheetApp: { openById: () => ({ getSheets: () => sayfalar.map(s => ({
             getSheetId: () => s.gid, getName: () => s.ad })) }) },
@@ -257,6 +257,51 @@ function calistir(ad, o) {
         '11b: uygulama gereken sayfaları hesaplamıyor');
     assert(/formSayfalariniYukle\(file, 'Doğrulama Formları', gereken\)/.test(src), '11c: gönderilmiyor');
     console.log('✓ 11 uygulama yalnızca bağlanacak kayıtların sayfalarını istiyor');
+}
+
+// 12) BOS SAYFA: yalnizca dolu hucre araligi basiliyor
+{
+    const cagrilar = [];
+    const o = {
+        Utilities: { sleep: () => {}, base64Decode: () => DOSYA_BAYT, newBlob: (b, t) => ({ getContentType: () => t, getBytes: () => DOSYA_BAYT }) },
+        ScriptApp: { getOAuthToken: () => 'T' },
+        SpreadsheetApp: { openById: () => ({ getSheets: () => [{
+            getSheetId: () => 7, getName: () => 'SM1',
+            getDataRange: () => ({ getA1Notation: () => 'A1:AM40' }) }] }) },
+        DriveApp: { getFileById: () => ({ setTrashed: () => {} }), Access: {}, Permission: {} },
+        UrlFetchApp: { fetch: (u) => { cagrilar.push(u);
+            return { getResponseCode: () => 200, getBlob: () => ({ setName: (x) => ({ ad: x }) }) }; } },
+        _eTablayaDonustur: () => 'G', _raporKlasoru: () => 'K',
+        _paylasilanDosya: () => ({ fileId: 'i', driveUrl: 'u', previewUrl: 'p' }),
+        String, JSON, Error, Array, encodeURIComponent
+    };
+    calistir('formSayfalariniAyir', o)('B', 'd.xls', 'x', '');
+    assert.strictEqual(cagrilar.length, 1, '12a: ' + cagrilar.length);
+    assert(/range=A1%3AAM40/.test(cagrilar[0]),
+        '12b: aralık verilmiyor — Google tüm ızgarayı basar, arkaya boş sayfa gelir: ' + cagrilar[0]);
+    console.log('✓ 12 yalnızca dolu hücre aralığı basılıyor (arkada boş sayfa kalmıyor)');
+}
+
+// 13) Gecici hata YENIDEN DENENIYOR, sayfa bosuna dusmuyor
+{
+    let n = 0;
+    const o = {
+        Utilities: { sleep: () => {}, base64Decode: () => DOSYA_BAYT, newBlob: (b, t) => ({ getContentType: () => t, getBytes: () => DOSYA_BAYT }) },
+        ScriptApp: { getOAuthToken: () => 'T' },
+        SpreadsheetApp: { openById: () => ({ getSheets: () => [{ getSheetId: () => 1, getName: () => 'SM1' }] }) },
+        DriveApp: { getFileById: () => ({ setTrashed: () => {} }), Access: {}, Permission: {} },
+        // ilk iki istek basarisiz, ucuncusu basarili (sayac ISTEK basina)
+        UrlFetchApp: { fetch: () => { n++; const kod = n < 3 ? 429 : 200;
+            return { getResponseCode: () => kod, getBlob: () => ({ setName: (x) => ({ ad: x }) }) }; } },
+        _eTablayaDonustur: () => 'G', _raporKlasoru: () => 'K',
+        _paylasilanDosya: () => ({ fileId: 'i', driveUrl: 'u', previewUrl: 'p' }),
+        String, JSON, Error, Array, encodeURIComponent
+    };
+    const r = calistir('formSayfalariniAyir', o)('B', 'd.xls', 'x', '');
+    assert.strictEqual(r.sayfalar.length, 1, '13a: geçici hatada sayfa düştü');
+    assert.deepStrictEqual(r.hatali, [], '13b: ' + JSON.stringify(r.hatali));
+    assert.strictEqual(n, 3, '13c: ' + n + ' deneme yapıldı (3 beklenir)');
+    console.log('✓ 13 hız sınırına takılan sayfa yeniden deneniyor');
 }
 
 console.log('\nTüm senaryolar geçti.');

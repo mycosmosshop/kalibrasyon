@@ -130,17 +130,31 @@ function formSayfalariniAyir(base64Data, fileName, mimeType, subfolder, istenen)
     var sadece = (istenen && istenen.length) ? istenen : null;
     ss.getSheets().forEach(function (sh) {
       if (sadece && sadece.indexOf(sh.getName()) < 0) return;
+      // Yalnizca DOLU hucre araligi basilsin: aralik verilmezse Google
+      // sayfanin tum izgarasini basiyor ve formdan sonrasi bos sayfa oluyor.
+      var aralik = '';
+      try { aralik = sh.getDataRange().getA1Notation(); } catch (e2) {}
       var url = 'https://docs.google.com/spreadsheets/d/' + geciciId +
         '/export?format=pdf&gid=' + sh.getSheetId() +
+        (aralik ? '&range=' + encodeURIComponent(aralik) : '') +
         '&size=A4&portrait=false&fitw=true&gridlines=false&printtitle=false&sheetnames=false' +
+        '&pagenumbers=false&fzr=false' +
         '&top_margin=0.3&bottom_margin=0.3&left_margin=0.3&right_margin=0.3';
-      var res = UrlFetchApp.fetch(url, { muteHttpExceptions: true,
-        headers: { Authorization: 'Bearer ' + token } });
-      if (res.getResponseCode() !== 200) { hatali.push(sh.getName()); return; }
+      // Arka arkaya 20 istek hiz sinirina takilabiliyor: basarisizsa bir kez
+      // daha denenir, istekler arasinda kisa bir bekleme birakilir.
+      var res = null;
+      for (var deneme = 0; deneme < 3; deneme++) {
+        res = UrlFetchApp.fetch(url, { muteHttpExceptions: true,
+          headers: { Authorization: 'Bearer ' + token } });
+        if (res.getResponseCode() === 200) break;
+        Utilities.sleep(2000);
+      }
+      if (!res || res.getResponseCode() !== 200) { hatali.push(sh.getName()); return; }
       var ad = taban + ' - ' + sh.getName() + '.pdf';
       var bilgi = _paylasilanDosya(folder, res.getBlob().setName(ad));
       sayfalar.push({ sayfa: sh.getName(), ad: ad, fileId: bilgi.fileId,
         driveUrl: bilgi.driveUrl, previewUrl: bilgi.previewUrl });
+      Utilities.sleep(400);
     });
     return { success: true, sayfalar: sayfalar, hatali: hatali };
   } catch (err) {
