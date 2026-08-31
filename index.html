@@ -2004,7 +2004,21 @@ const StatCard = ({ icon, title, value, color, onClick }) => (
     )
 );
 
-const Dashboard = ({ instrumentsWithStatus, calibrationRecords, onNavigate, onShowDetail, settings }) => {
+const Dashboard = ({ instrumentsWithStatus: _tumCihazlar, calibrationRecords: _tumKayitlar, onNavigate, onShowDetail, settings }) => {
+    // KONUM SUZGECI tek yerde: cihazlar konuma gore, kayitlar da o
+    // cihazlarin kimliklerine gore suzuluyor. Asagidaki butun kartlar ve
+    // grafikler bu ikisinden beslendigi icin hepsi birden takip ediyor.
+    const [konum, setKonum] = useState('');
+    const konumlar = useMemo(() => [...new Set(_tumCihazlar.map(i => i.location).filter(Boolean))]
+        .sort((a, b) => a.localeCompare(b, 'tr')), [_tumCihazlar]);
+    const instrumentsWithStatus = useMemo(
+        () => konum ? _tumCihazlar.filter(i => i.location === konum) : _tumCihazlar,
+        [_tumCihazlar, konum]);
+    const _kimlikler = useMemo(() => new Set(instrumentsWithStatus.map(i => i.id)),
+        [instrumentsWithStatus]);
+    const calibrationRecords = useMemo(
+        () => konum ? _tumKayitlar.filter(r => _kimlikler.has(r.instrumentId)) : _tumKayitlar,
+        [_tumKayitlar, _kimlikler, konum]);
     const instrumentStats = useMemo(() => {
         const total = instrumentsWithStatus.length;
         const ok = instrumentsWithStatus.filter(i => i.status === CalibrationStatus.OK).length;
@@ -2175,6 +2189,16 @@ const Dashboard = ({ instrumentsWithStatus, calibrationRecords, onNavigate, onSh
         e("div", { className: "space-y-6" },
             e("div", { className: "flex flex-wrap items-center justify-between gap-4" },
                 e("h1", { className: "text-3xl font-bold text-slate-900 dark:text-slate-100" }, "Gösterge Paneli"),
+                e("div", { className: "flex items-center gap-2 flex-wrap" },
+                e("select", {
+                    value: konum,
+                    onChange: ev => setKonum(ev.target.value),
+                    title: "Konuma göre süz — tüm kartlar ve grafikler bu seçime uyar",
+                    className: "px-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded-md bg-white dark:bg-slate-700 dark:text-slate-200"
+                },
+                    e("option", { value: "" }, "📍 Tüm Konumlar"),
+                    konumlar.map(l => e("option", { key: l, value: l }, l))
+                ),
                 e("button", {
                     onClick: () => {
                         const body = `Merhaba,\n\nKalibrasyonu gecikmiş veya yaklaşan cihazlar:\n${[...attentionItems].map(i => `- ${i.name} (SN: ${i.serialNumber}) - Sonraki Tarih: ${formatDateForDisplay(i.nextCalibrationDate)}`).join('\n')}`;
@@ -2185,6 +2209,7 @@ const Dashboard = ({ instrumentsWithStatus, calibrationRecords, onNavigate, onSh
                 },
                     e(EnvelopeIcon, {}),
                     "Bildirim Maili Gönder"
+                )
                 )
             ),
             e("div", { className: "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6" },
@@ -2504,6 +2529,7 @@ const InstrumentList = ({ instruments, onAddInstrument, onEditInstrument, onDele
         searchTerm: '',
         status: '',
         department: '',
+        location: '',
         dateFilterType: 'none',
         startDate: '',
         endDate: '',
@@ -2515,7 +2541,7 @@ const InstrumentList = ({ instruments, onAddInstrument, onEditInstrument, onDele
 
     useEffect(() => {
         const defaultFilters = {
-            searchTerm: '', status: '', department: '',
+            searchTerm: '', status: '', department: '', location: '',
             dateFilterType: 'none', startDate: '', endDate: ''
         };
         if (initialFilter) {
@@ -2549,7 +2575,8 @@ const InstrumentList = ({ instruments, onAddInstrument, onEditInstrument, onDele
                  instrument.location.toLowerCase().includes(searchTermLower) ||
                  instrument.id.toLowerCase().includes(searchTermLower)) &&
                 (filters.status === '' || instrument.status === filters.status) &&
-                (filters.department === '' || instrument.department === filters.department)
+                (filters.department === '' || instrument.department === filters.department) &&
+                (filters.location === '' || instrument.location === filters.location)
             );
         });
 
@@ -2658,6 +2685,10 @@ const InstrumentList = ({ instruments, onAddInstrument, onEditInstrument, onDele
     };
     
     const departments = useMemo(() => [...new Set(instruments.map(i => i.department).filter((d) => Boolean(d)))], [instruments]);
+    // Konum listesi sabit degil: cihazlarda gecen konumlardan turetilir,
+    // yeni konum eklenince filtreye kendiliginden girer.
+    const locations = useMemo(() => [...new Set(instruments.map(i => i.location).filter(Boolean))]
+        .sort((a, b) => a.localeCompare(b, 'tr')), [instruments]);
 
     const counts = useMemo(() => ({
         overdue: instruments.filter(i => i.status === CalibrationStatus.OVERDUE).length,
@@ -2699,7 +2730,7 @@ const InstrumentList = ({ instruments, onAddInstrument, onEditInstrument, onDele
                     e(QuickFilterButton, { label: "Gecikmiş", count: counts.overdue, filterStatus: CalibrationStatus.OVERDUE, activeStatus: filters.status, setFilter: status => setFilters(prev => ({ ...prev, status })), color: "bg-red-100 text-red-800" }),
                     e(QuickFilterButton, { label: "Yaklaşıyor", count: counts.dueSoon, filterStatus: CalibrationStatus.DUE_SOON, activeStatus: filters.status, setFilter: status => setFilters(prev => ({ ...prev, status })), color: "bg-yellow-100 text-yellow-800" })
                 ),
-                e("div", { className: "grid grid-cols-1 md:grid-cols-3 gap-4" },
+                e("div", { className: "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4" },
                     e(FormInput, {
                         label: "Ara (ID, Ad, Seri No, Konum...)",
                         id: "searchTerm",
@@ -2718,6 +2749,16 @@ const InstrumentList = ({ instruments, onAddInstrument, onEditInstrument, onDele
                     },
                         e("option", { value: "" }, "Tüm Departmanlar"),
                         departments.map(dep => e("option", { key: dep, value: dep }, dep))
+                    ),
+                    e(FormSelect, {
+                        label: "Konum",
+                        id: "location",
+                        name: "location",
+                        value: filters.location,
+                        onChange: handleFilterChange,
+                    },
+                        e("option", { value: "" }, "Tüm Konumlar"),
+                        locations.map(l => e("option", { key: l, value: l }, l))
                     ),
                      e(FormSelect, {
                         label: "Durum",
@@ -2765,7 +2806,7 @@ const InstrumentList = ({ instruments, onAddInstrument, onEditInstrument, onDele
                 ),
                  e("div", { className: "flex justify-end pt-4 border-t dark:border-slate-700" },
                     e("button", {
-                        onClick: () => setFilters({ searchTerm: '', status: '', department: '', dateFilterType: 'none', startDate: '', endDate: '' }),
+                        onClick: () => setFilters({ searchTerm: '', status: '', department: '', location: '', dateFilterType: 'none', startDate: '', endDate: '' }),
                         className: "flex items-center justify-center gap-2 px-4 py-2 text-sm font-semibold text-slate-700 bg-slate-200 dark:bg-slate-600 dark:text-slate-200 rounded-md hover:bg-slate-300 dark:hover:bg-slate-500 transition-colors"
                     },
                         e(ArrowPathIcon, {}), " Filtreyi Temizle"
@@ -3249,7 +3290,7 @@ const AllCalibrationsView = ({ records, instruments, onEditRecord, onDeleteRecor
         }
         toastService.error('Rapor dosyası bulunamadı.');
     };
-    const [filters, setFilters] = useState({ searchTerm: '', result: '', recordType: '' });
+    const [filters, setFilters] = useState({ searchTerm: '', result: '', recordType: '', location: '' });
     const [columns, setColumns] = useLocalStorage('allCalibrationsTableColumns', ALL_CALIBRATIONS_COLUMNS);
     const [isViewSettingsOpen, setViewSettingsOpen] = useState(false);
     const [sortConfig, setSortConfig] = useState({ key: 'date', direction: 'descending' });
@@ -3260,7 +3301,8 @@ const AllCalibrationsView = ({ records, instruments, onEditRecord, onDeleteRecor
         setFilters({
             searchTerm: initialFilter?.searchTerm || '',
             result: initialFilter?.result || '',
-            recordType: initialFilter?.recordType || ''
+            recordType: initialFilter?.recordType || '',
+            location: initialFilter?.location || ''
         });
     }, [initialFilter]);
 
@@ -3278,7 +3320,7 @@ const AllCalibrationsView = ({ records, instruments, onEditRecord, onDeleteRecor
 
     const filteredRecords = useMemo(() => {
         const recordsWithDetails = records.map(record => {
-            const instrument = instruments.find(i => i.id === record.instrumentId) || { name: 'Bilinmeyen Cihaz', serialNumber: 'N/A' };
+            const instrument = instruments.find(i => i.id === record.instrumentId) || { name: 'Bilinmeyen Cihaz', serialNumber: 'N/A', location: '' };
             const refInstrument = record.referenceInstrumentId ? instruments.find(i => i.id === record.referenceInstrumentId) : null;
             
             const deviation = Number(record.deviation) || 0;
@@ -3290,6 +3332,7 @@ const AllCalibrationsView = ({ records, instruments, onEditRecord, onDeleteRecor
                 ...record,
                 instrumentName: instrument.name,
                 instrumentSerial: instrument.serialNumber,
+                instrumentLocation: instrument.location || '',
                 referenceInstrumentName: refInstrument ? `${refInstrument.name} (SN: ${refInstrument.serialNumber})` : (record.referenceInstrumentId || ''),
                 totalDeviation: totalDeviationForDisplay,
             };
@@ -3317,6 +3360,11 @@ const AllCalibrationsView = ({ records, instruments, onEditRecord, onDeleteRecor
 
         if (filters.recordType) {
             filtered = filtered.filter(r => r.recordType === filters.recordType);
+        }
+
+        // Kaydin konumu yok; bagli oldugu CIHAZIN konumuna gore suzulur.
+        if (filters.location) {
+            filtered = filtered.filter(r => r.instrumentLocation === filters.location);
         }
 
         if (sortConfig !== null) {
@@ -3392,6 +3440,17 @@ const AllCalibrationsView = ({ records, instruments, onEditRecord, onDeleteRecor
                             onChange: handleFilterChange,
                             className: "w-full md:w-60 pl-10 pr-4 py-2 border border-slate-300 rounded-md dark:bg-slate-700 dark:border-slate-600"
                         })
+                    ),
+                    e(FormSelect, {
+                        name: "location",
+                        value: filters.location,
+                        onChange: handleFilterChange,
+                        className: "py-2"
+                    },
+                        e("option", { value: "" }, "Tüm Konumlar"),
+                        [...new Set(instruments.map(i => i.location).filter(Boolean))]
+                            .sort((a, b) => a.localeCompare(b, 'tr'))
+                            .map(l => e("option", { key: l, value: l }, l))
                     ),
                     e(FormSelect, {
                         name: "recordType",
