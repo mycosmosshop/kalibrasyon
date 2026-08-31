@@ -7,7 +7,8 @@
  *
  * KURULUM:
  *   - script.google.com → Yeni proje → bu kodu yapıştır.
- *   - SERVICE_ROLE_KEY'i Supabase panelinden al (Settings → API → service_role secret) ve aşağıya yaz.
+ *   - Supabase service_role anahtarını KODA YAZMA. Apps Script → Proje Ayarları →
+ *     Komut Dosyası Özellikleri → SUPABASE_SERVICE_KEY olarak ekle.
  *   - Dağıt → Web uygulaması → "Beni"; erişim "Herkes" → /exec URL'sini kopyala.
  *   - Uygulama Ayarlar → "Servis URL" alanına o /exec URL'sini yapıştır.
  *   - OTOMATİK için: Apps Script'te bir kez kurulum() fonksiyonunu çalıştırın.
@@ -17,7 +18,13 @@
  ********************************************************************************/
 
 var SUPA_URL = 'https://chchaielttnimuuezazb.supabase.co';
-var SERVICE_ROLE_KEY = 'eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNoY2hhaWVsdHRuaW11dWV6YXpiIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MDc3MzY2NCwiZXhwIjoyMDk2MzQ5NjY0fQ';   // Supabase → Settings → API → service_role (gizli)
+// service_role anahtari BU DOSYAYA YAZILMAZ: dosya herkese açık depoda duruyor
+// ve bu anahtar RLS'i tamamen bypass eder.
+// Yeri: Apps Script → ⚙ Proje Ayarları → Komut Dosyası Özellikleri → ekle:
+//   SUPABASE_SERVICE_KEY = <Supabase → Settings → API → service_role>
+function _servisAnahtari() {
+  return String(PropertiesService.getScriptProperties().getProperty('SUPABASE_SERVICE_KEY') || '');
+}
 var ROW_ID = 'kalibrasyon';
 var DEFAULT_THRESHOLD = 30; // ayarlarda yoksa varsayılan "yaklaşıyor" eşiği (gün)
 
@@ -56,7 +63,7 @@ function durumOzeti() {
   } catch (err) { o.tetikleyiciHata = String(err); }
 
   var data = readSupabase();
-  if (!data) { o.veri = false; return o; }
+  if (!data) { o.veri = false; o.veriHata = _sonVeriHatasi; return o; }
   o.veri = true;
   var s = data.settings || {};
   o.acik = s.scheduleEnabled !== false;
@@ -284,13 +291,34 @@ function _gecikenler(instruments, records, thr) {
 }
 
 // ---- Supabase'den (service_role ile, RLS bypass) veriyi oku ----
+// Okuma basarisiz olursa sebebi burada tutulur; 'Durumu kontrol et' bunu
+// gosterir. Izin eksikligi ile gecersiz anahtar disaridan ayni goruniyordu.
+var _sonVeriHatasi = '';
+
 function readSupabase() {
+  _sonVeriHatasi = '';
   try {
+    var anahtar = _servisAnahtari();
+    if (!anahtar) {
+      _sonVeriHatasi = 'SUPABASE_SERVICE_KEY tanımlı değil. Apps Script → Proje Ayarları → ' +
+        'Komut Dosyası Özellikleri bölümüne ekleyin (değeri: Supabase → Settings → API → service_role).';
+      return null;
+    }
+    if (anahtar.split('.').length !== 3) {
+      _sonVeriHatasi = 'SUPABASE_SERVICE_KEY eksik görünüyor: JWT üç parçalı olmalı (xxx.yyy.zzz), ' +
+        anahtar.split('.').length + ' parça var. Değeri baştan sona kopyalayın.';
+      return null;
+    }
     var url = SUPA_URL + '/rest/v1/supplier_sync?id=eq.' + ROW_ID + '&select=data';
     var res = UrlFetchApp.fetch(url, {
       method: 'get', muteHttpExceptions: true,
-      headers: { apikey: SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SERVICE_ROLE_KEY }
+      headers: { apikey: anahtar, Authorization: 'Bearer ' + anahtar }
     });
+    if (res.getResponseCode() !== 200) {
+      _sonVeriHatasi = 'Supabase HTTP ' + res.getResponseCode() + ': ' +
+        String(res.getContentText()).slice(0, 150);
+      return null;
+    }
     var arr = JSON.parse(res.getContentText());
     if (arr && arr[0] && arr[0].data) {
       var d = arr[0].data;
@@ -301,7 +329,11 @@ function readSupabase() {
         settings: _parse(d.settings, {})
       };
     }
-  } catch (err) { Logger.log('readSupabase: ' + err); }
+    _sonVeriHatasi = "'" + ROW_ID + "' satırı Supabase'de bulunamadı (uygulama henüz veri göndermemiş olabilir).";
+  } catch (err) {
+    _sonVeriHatasi = String(err);
+    Logger.log('readSupabase: ' + err);
+  }
   return null;
 }
 
