@@ -1825,12 +1825,27 @@ return instruments.map(instrument => {
     }, []);
 
     const handleSendFilteredNotification = async (instrumentsToNotify) => {
+        // ALAN ADLARI mail sablonunun (buildHtml) okudugu adlarla AYNI
+        // olmali. Eskiden serial/nextCalibration gonderiliyor, sablon
+        // serialNumber/nextCalibrationDate okuyordu: mailde Seri No,
+        // Departman, Siradaki Kalibrasyon ve Durum sutunlari BOS geliyordu.
+        const bugun = new Date(); bugun.setHours(0, 0, 0, 0);
+        const kalanGun = (t) => {
+            if (!t) return null;
+            const d = new Date(t);
+            if (isNaN(d.getTime())) return null;
+            d.setHours(0, 0, 0, 0);
+            return Math.ceil((d.getTime() - bugun.getTime()) / 86400000);
+        };
         const devicesToScrapeFormat = instrumentsToNotify.map(inst => ({
             name: inst.name,
-            serial: inst.serialNumber,
+            serialNumber: inst.serialNumber || '',
+            department: inst.department || '',
+            location: inst.location || '',
+            nextCalibrationDate: formatDateForDisplay(inst.nextCalibrationDate),
+            lastCalibrationDate: formatDateForDisplay(inst.lastCalibrationDate),
+            daysLeft: kalanGun(inst.nextCalibrationDate),   // Durum sutunu ve satir rengi
             status: inst.status,
-            lastCalibration: inst.lastCalibrationDate,
-            nextCalibration: inst.nextCalibrationDate,
         }));
         const subject = `Kalibrasyon Bildirimi - Filtrelenmiş Cihaz Listesi (${devicesToScrapeFormat.length} cihaz)`;
         return await handleSendImmediateReport(settings, devicesToScrapeFormat, subject);
