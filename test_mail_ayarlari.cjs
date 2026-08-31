@@ -30,7 +30,8 @@ function gsFonk(ad, ortam) {
     const g = govde(gs, 'function ' + ad + '(');
     const temel = {
         Boolean, String, Number, Date, Math, Array, Object, JSON, isNaN, parseInt, parseFloat,
-        Logger: { log: () => {} }
+        Logger: { log: () => {} },
+        anlikOku: () => null            // Supabase okunamazsa kullanilan yedek kaynak
     };
     return new Function('__k', 'with (__k) {\n' + g + '\nreturn ' + ad + ';\n}')(
         new Proxy(Object.assign(temel, ortam || {}),

@@ -63,6 +63,12 @@ function durumOzeti() {
   } catch (err) { o.tetikleyiciHata = String(err); }
 
   var data = readSupabase();
+  o.kaynak = data ? 'supabase' : '';
+  if (!data) {
+    o.supabaseHata = _sonVeriHatasi;
+    data = anlikOku();
+    if (data) { o.kaynak = 'anlık kopya'; o.anlikZaman = data.zaman; }
+  }
   if (!data) { o.veri = false; o.veriHata = _sonVeriHatasi; return o; }
   o.veri = true;
   var s = data.settings || {};
@@ -186,6 +192,16 @@ function doPost(e) {
       return _json(result);
     }
 
+    // Uygulamadan gelen anlik kopya (Supabase'e alternatif kaynak)
+    if (body.action === 'anlik') {
+      anlikYaz({
+        instruments: body.instruments, calibrationRecords: body.calibrationRecords,
+        settings: body.settings,
+        zaman: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm')
+      });
+      return _json({ success: true });
+    }
+
     // Cok sayfali dogrulama defterini sayfa sayfa PDF'e ayir
     if (body.action === 'formSayfalari') {
       var ayrilan = formSayfalariniAyir(body.base64, body.filename, body.mimeType, body.subfolder || '');
@@ -247,7 +263,9 @@ function _gonderimiIsaretle() {
 }
 
 function dailyCheck() {
+  // Once Supabase; olmazsa uygulamanin gonderdigi anlik kopya.
   var data = readSupabase();
+  if (!data) { data = anlikOku(); if (data) Logger.log('Anlık kopya kullanıldı (' + data.zaman + ')'); }
   if (!data) { Logger.log('Veri okunamadı'); return; }
   var instruments = data.instruments || [];
   var records = data.calibrationRecords || [];
@@ -269,6 +287,34 @@ function dailyCheck() {
   GmailApp.sendEmail(toList.join(','), subject, _strip(html), { htmlBody: html, name: 'Kalibrasyon Takip' });
   _gonderimiIsaretle();
   Logger.log('Gönderildi: ' + toList.join(',') + ' (' + due.length + ' cihaz)');
+}
+
+// ---- Uygulamanin gonderdigi ANLIK KOPYA (Supabase'e gerek kalmadan) ----
+// Uygulama acildiginda/ayarlar kaydedildiginde cihaz listesini ve ayarlari
+// buraya gonderir. Supabase okunamazsa mail bu kopyadan uretilir.
+var ANLIK_DOSYA = 'kalibrasyon-anlik.json';
+
+function anlikYaz(veri) {
+  var klasor = _raporKlasoru('');
+  var metin = JSON.stringify(veri);
+  var it = klasor.getFilesByName(ANLIK_DOSYA);
+  if (it.hasNext()) { var d = it.next(); d.setContent(metin); return d.getId(); }
+  return klasor.createFile(Utilities.newBlob(metin, 'application/json', ANLIK_DOSYA)).getId();
+}
+
+function anlikOku() {
+  try {
+    var it = _raporKlasoru('').getFilesByName(ANLIK_DOSYA);
+    if (!it.hasNext()) return null;
+    var o = JSON.parse(it.next().getBlob().getDataAsString());
+    if (!o || !o.instruments) return null;
+    return {
+      instruments: _parse(o.instruments, []),
+      calibrationRecords: _parse(o.calibrationRecords, []),
+      settings: _parse(o.settings, {}),
+      zaman: o.zaman || ''
+    };
+  } catch (err) { Logger.log('anlikOku: ' + err); return null; }
 }
 
 // ---- Gecikmis / esige girmis cihazlar (dailyCheck ve durumOzeti ayni listeyi kullanir) ----
