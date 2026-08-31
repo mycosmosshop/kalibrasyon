@@ -1256,7 +1256,14 @@ return instruments.map(instrument => {
             'Rapor No': 'reportNumber', 'Rapor Numarası': 'reportNumber',
             'Sapma': 'deviation', 'Belirsizlik': 'uncertainty',
             'Notlar': 'notes', 'Zimmetli Personel': 'assignedPersonnel',
-            'Referans Cihaz Seri No': 'referenceInstrumentSerial'
+            'Referans Cihaz Seri No': 'referenceInstrumentSerial',
+            // Uygulamanin KENDI disa aktarma basliklari (PL12 kontrol plani da
+            // ayni basliklari kullaniyor). Bunlar taninmadigi icin dosya
+            // aktarilinca cihazlar geliyor ama KAYITLARIN HICBIRI gelmiyordu.
+            'İzin Ver. Sapma': 'permissibleDeviation',
+            'Son Kalibrasyon': 'lastCalibrationDate',
+            'Kal. Firması': 'calibratingCompany',
+            'Doğrulayan': 'technician'
         };
 
         // Başlık/antet satırlarını atla: headerMap ile eşleşen ilk satırı gerçek header kabul et
@@ -1294,6 +1301,12 @@ return instruments.map(instrument => {
                 }
             });
     
+            // Kontrol plani dosyalarinda ayri bir 'Tarih' sutunu yok; kayit
+            // tarihi 'Son Kalibrasyon'dan alinir. Olmazsa kayit hic olusmaz.
+            if (!rowData.date && rowData.lastCalibrationDate) {
+                rowData.date = rowData.lastCalibrationDate;
+            }
+
             if (!rowData.serialNumber && !rowData.id && !rowData.name) {
                 console.warn(`Satır ${rowIndex + 2} atlandı: boş satır (seri no / cihaz id / ad yok).`);
                 return;
