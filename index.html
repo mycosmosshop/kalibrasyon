@@ -717,19 +717,36 @@ const App = () => {
         }));
     }, []);
 
-    // Doğrulama kayıtlarına ÇELİK CETVEL/LABORATUVAR (SN: 20244561) referans olarak ata
+    // Doğrulama kayıtlarına referans cihaz ata: cihazın KENDİ KONUMUNDAKİ
+    // çelik cetvel. Eskiden SN 20244561 (Çerkezköy) sabit atanıyordu;
+    // başka konumdaki doğrulamalar da oraya bağlanıyordu. O konumda çelik
+    // cetvel yoksa eski davranışa düşer — Çerkezköy kayıtları değişmez.
     useEffect(() => {
-        const refInstrument = instruments.find(i => String(i.serialNumber).trim() === '20244561');
-        if (!refInstrument) return;
-        const needsUpdate = calibrationRecords.some(
+        // 'ÇELİK'.toLowerCase() noktalı i üretip eşleşmeyi bozuyor;
+        // karşılaştırma Türkçe BÜYÜK harfle yapılıyor.
+        const buyuk = (t) => String(t == null ? '' : t).toLocaleUpperCase('tr').replace(/\s+/g, ' ').trim();
+        const cetveller = instruments.filter(i =>
+            buyuk(i.name).indexOf('ÇELİK CETVEL') >= 0 || String(i.serialNumber).trim() === '20244561');
+        if (!cetveller.length) return;
+
+        const konumaGore = new Map();
+        cetveller.forEach(i => {
+            const k = buyuk(i.location);
+            if (!konumaGore.has(k)) konumaGore.set(k, i);
+        });
+        const varsayilan = cetveller.find(i => String(i.serialNumber).trim() === '20244561') || cetveller[0];
+
+        const eksikVar = calibrationRecords.some(
             r => r.recordType === RecordType.VERIFICATION && !r.referenceInstrumentId
         );
-        if (!needsUpdate) return;
-        setCalibrationRecords(prev => prev.map(r =>
-            r.recordType === RecordType.VERIFICATION && !r.referenceInstrumentId
-                ? { ...r, referenceInstrumentId: refInstrument.id }
-                : r
-        ));
+        if (!eksikVar) return;
+
+        setCalibrationRecords(prev => prev.map(r => {
+            if (r.recordType !== RecordType.VERIFICATION || r.referenceInstrumentId) return r;
+            const cihaz = instruments.find(i => i.id === r.instrumentId);
+            const ref = konumaGore.get(buyuk(cihaz && cihaz.location)) || varsayilan;
+            return ref ? { ...r, referenceInstrumentId: ref.id } : r;
+        }));
     }, [instruments]);
 
     const [currentView, setCurrentView] = useState('dashboard');
