@@ -1013,6 +1013,13 @@ return instruments.map(instrument => {
         setCalibrationFormOpen(true);
     };
 
+    // Toplu yuklemeden gelen dosyalari kayitlara isle (tek seferde)
+    const handleAttachReports = (guncelleme) => {
+        const harita = {};
+        (guncelleme || []).forEach(g => { harita[g.kayitId] = g.reportFile; });
+        setCalibrationRecords(prev => prev.map(r => harita[r.id] ? { ...r, reportFile: harita[r.id] } : r));
+    };
+
     const handleEditRecord = (record) => {
         const instrument = instruments.find(i => i.id === record.instrumentId);
         if (!instrument) {
@@ -1996,7 +2003,8 @@ return instruments.map(instrument => {
                             onBulkDelete: handleBulkDeleteRecords,
                             onBulkEdit: (ids) => { setEditingRecordIdsForBulk(ids); setBulkRecordEditModalOpen(true); },
                             initialFilter: allCalibrationsInitialFilter,
-                            seciliKonum: seciliKonum, setSeciliKonum: setSeciliKonum
+                            seciliKonum: seciliKonum, setSeciliKonum: setSeciliKonum,
+                            onAttachReports: handleAttachReports
                         });
             case 'instruments':
                 return e(InstrumentList, { 
@@ -3425,7 +3433,183 @@ const CorrectionTableModal = ({ isOpen, onClose, record, instrument }) => {
     );
 };
 
-const AllCalibrationsView = ({ records, instruments, onEditRecord, onDeleteRecord, onBulkDelete, onBulkEdit, initialFilter , seciliKonum, setSeciliKonum }) => {
+// === Toplu rapor yukleme ===
+// Seri no / rapor no karsilastirmasi: noktalama ve bastaki sifirlar onemsiz.
+// 'SM-01' ile 'SM1', '0143K-0726-01126' ile '0143K072601126' esittir.
+const _rprAnahtar = (x) => String(x == null ? '' : x).toUpperCase().replace(/[^A-Z0-9]/g, '');
+const _seriAnahtar = (x) => _rprAnahtar(x).replace(/\d+/g, (d) => String(parseInt(d, 10)));
+
+// dosyalar: [{ ad, sayfalar }] — sayfalar yalnizca Excel defterlerinde dolu.
+// Donen: her dosya icin hangi kayitlara baglanacagi ve neden baglanmadigi.
+function raporEslestir(dosyalar, kayitlar, cihazlar, uzerineYaz) {
+    const cihazAdi = {};
+    (cihazlar || []).forEach(c => { cihazAdi[c.id] = c; });
+
+    return (dosyalar || []).map(d => {
+        const ad = String(d.ad || '');
+        const uzanti = (ad.split('.').pop() || '').toLowerCase();
+        const sonuc = { ad, tur: uzanti === 'pdf' ? 'pdf' : (uzanti === 'xls' || uzanti === 'xlsx') ? 'form' : 'bilinmiyor', hedefler: [] };
+
+        if (sonuc.tur === 'pdf') {
+            // Rapor No dosya adinin icinde geciyor mu?
+            const dosyaAnahtar = _rprAnahtar(ad.replace(/\.[^.]+$/, ''));
+            (kayitlar || []).forEach(k => {
+                const rn = _rprAnahtar(k.reportNumber);
+                if (rn.length >= 6 && dosyaAnahtar.indexOf(rn) >= 0) {
+                    sonuc.hedefler.push({ kayitId: k.id, cihaz: (cihazAdi[k.instrumentId] || {}).name || '?',
+                        etiket: ad, tarih: k.date, doluydu: !!k.reportFile });
+                }
+            });
+        } else if (sonuc.tur === 'form') {
+            // Her sayfa bir cihaz: sayfa adi <-> seri no
+            (d.sayfalar || []).forEach(sayfa => {
+                const sk = _seriAnahtar(sayfa);
+                const cihaz = (cihazlar || []).find(c => _seriAnahtar(c.serialNumber) === sk);
+                if (!cihaz) return;
+                (kayitlar || []).forEach(k => {
+                    if (k.instrumentId !== cihaz.id) return;
+                    if (k.recordType !== RecordType.VERIFICATION) return;
+                    sonuc.hedefler.push({ kayitId: k.id, cihaz: cihaz.name, sayfa: sayfa,
+                        etiket: ad + ' — ' + sayfa, tarih: k.date, doluydu: !!k.reportFile });
+                });
+            });
+        }
+
+        if (!uzerineYaz) sonuc.hedefler = sonuc.hedefler.filter(h => !h.doluydu);
+        sonuc.atlanan = 0;
+        return sonuc;
+    });
+}
+
+const TopluRaporModal = ({ isOpen, onClose, records, instruments, onAttachReports }) => {
+    const [dosyalar, setDosyalar] = useState([]);      // gercek File nesneleri
+    const [eslesme, setEslesme] = useState([]);
+    const [uzerineYaz, setUzerineYaz] = useState(false);
+    const [calisiyor, setCalisiyor] = useState(false);
+    const [ilerleme, setIlerleme] = useState('');
+
+    useEffect(() => { if (!isOpen) { setDosyalar([]); setEslesme([]); setIlerleme(''); } }, [isOpen]);
+
+    const dosyaSecildi = async (ev) => {
+        const secilen = Array.from(ev.target.files || []).filter(f =>
+            /\.(pdf|xls|xlsx)$/i.test(f.name));
+        if (!secilen.length) { toastService.warning('PDF veya Excel dosyası seçilmedi.'); return; }
+        setIlerleme('Dosyalar inceleniyor…');
+        const tanim = [];
+        for (const f of secilen) {
+            let sayfalar = null;
+            if (/\.(xls|xlsx)$/i.test(f.name)) {
+                try {
+                    const wb = XLSX.read(await f.arrayBuffer(), { type: 'array', bookSheets: true });
+                    sayfalar = wb.SheetNames;
+                } catch (err) { sayfalar = []; }
+            }
+            tanim.push({ ad: f.name, sayfalar });
+        }
+        setDosyalar(secilen);
+        setEslesme(raporEslestir(tanim, records, instruments, uzerineYaz));
+        setIlerleme('');
+        if (ev.target) ev.target.value = '';
+    };
+
+    // Kutu isaretlenince yeniden eslestir (dosyalari tekrar okumadan)
+    useEffect(() => {
+        if (!dosyalar.length) return;
+        const tanim = eslesme.map(x => ({ ad: x.ad, sayfalar: null }));
+        // sayfalari kaybetmemek icin mevcut hedeflerden sayfa adlarini topla
+        const sayfaHaritasi = {};
+        eslesme.forEach(x => { sayfaHaritasi[x.ad] = Array.from(new Set(x.hedefler.map(h => h.sayfa).filter(Boolean))); });
+        setEslesme(raporEslestir(
+            dosyalar.map(f => ({ ad: f.name, sayfalar: sayfaHaritasi[f.name] && sayfaHaritasi[f.name].length ? sayfaHaritasi[f.name] : null })),
+            records, instruments, uzerineYaz));
+    }, [uzerineYaz]);
+
+    const toplamHedef = eslesme.reduce((t, x) => t + x.hedefler.length, 0);
+
+    const yukle = async () => {
+        const gasUrl = (() => { try { return JSON.parse(localStorage.getItem('settings') || '{}').serviceUrl || ''; } catch (_) { return ''; } })();
+        if (!gasUrl) { toastService.error('Önce Ayarlar → Sunucu bağlantısı → Servis URL girin.'); return; }
+        setCalisiyor(true);
+        const guncelleme = [];
+        let hata = 0;
+        for (let i = 0; i < eslesme.length; i++) {
+            const es = eslesme[i];
+            if (!es.hedefler.length) continue;
+            const file = dosyalar.find(f => f.name === es.ad);
+            if (!file) continue;
+            setIlerleme((i + 1) + '/' + eslesme.length + ' — ' + es.ad + ' yükleniyor…');
+            try {
+                // Dosya Drive'a BIR KEZ yuklenir; ayni baglanti tum hedeflere verilir.
+                const r = await uploadToDrive(file, 'Raporlar');
+                es.hedefler.forEach(h => guncelleme.push({
+                    kayitId: h.kayitId,
+                    reportFile: { name: h.etiket, driveFileId: r.fileId, driveUrl: r.driveUrl, previewUrl: r.previewUrl }
+                }));
+            } catch (err) {
+                hata++;
+                toastService.error(es.ad + ': ' + err.message);
+            }
+        }
+        setCalisiyor(false);
+        setIlerleme('');
+        if (guncelleme.length) {
+            onAttachReports(guncelleme);
+            toastService.success(guncelleme.length + ' kayda rapor dosyası bağlandı.');
+            onClose();
+        } else if (!hata) {
+            toastService.warning('Bağlanacak kayıt bulunamadı.');
+        }
+    };
+
+    return e(Modal, { isOpen, onClose, title: "Toplu Rapor / Sertifika Yükle", size: "max-w-3xl" },
+        e("div", { className: "space-y-4" },
+            e("p", { className: "text-sm text-slate-600 dark:text-slate-300" },
+                "Sertifika PDF'leri ", e("strong", {}, "Rapor No"), "'ya göre, FR39 doğrulama defteri ise ",
+                e("strong", {}, "sayfa adı ↔ seri no"), " eşleşmesine göre ilgili kayıtlara bağlanır. Dosyalarınız olduğu gibi yüklenir."),
+            e("div", { className: "flex flex-wrap items-center gap-3" },
+                e("label", { className: "px-3 py-2 text-sm rounded-md bg-sky-600 text-white hover:bg-sky-700 cursor-pointer" },
+                    "Dosya Seç",
+                    e("input", { type: "file", multiple: true, accept: ".pdf,.xls,.xlsx", onChange: dosyaSecildi, className: "hidden" })),
+                e("label", { className: "px-3 py-2 text-sm rounded-md bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-600 cursor-pointer" },
+                    "Klasör Seç",
+                    e("input", { type: "file", multiple: true, webkitdirectory: "", directory: "", onChange: dosyaSecildi, className: "hidden" })),
+                e("label", { className: "flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300 select-none" },
+                    e("input", { type: "checkbox", className: "h-4 w-4", checked: uzerineYaz, onChange: (ev) => setUzerineYaz(ev.target.checked) }),
+                    "Mevcut dosyaların üzerine yaz")
+            ),
+            ilerleme && e("p", { className: "text-sm text-sky-600 dark:text-sky-400" }, ilerleme),
+            eslesme.length > 0 && e("div", { className: "max-h-80 overflow-y-auto border rounded-lg border-slate-300 dark:border-slate-600" },
+                e("table", { className: "w-full text-sm" },
+                    e("thead", { className: "bg-slate-100 dark:bg-slate-700 sticky top-0" },
+                        e("tr", {},
+                            e("th", { className: "text-left p-2" }, "Dosya"),
+                            e("th", { className: "text-left p-2" }, "Bağlanacak kayıt"),
+                            e("th", { className: "text-right p-2" }, "Adet"))),
+                    e("tbody", {},
+                        eslesme.map((x, i) => e("tr", { key: i, className: "border-t border-slate-200 dark:border-slate-700" },
+                            e("td", { className: "p-2 align-top" }, x.ad),
+                            e("td", { className: "p-2 align-top text-slate-600 dark:text-slate-300" },
+                                x.hedefler.length
+                                    ? Array.from(new Set(x.hedefler.map(h => h.cihaz))).join(', ')
+                                    : e("span", { className: "text-red-600 dark:text-red-400" }, "eşleşmedi")),
+                            e("td", { className: "p-2 align-top text-right font-medium" }, String(x.hedefler.length))
+                        )))
+                )
+            ),
+            eslesme.length > 0 && e("p", { className: "text-sm text-slate-700 dark:text-slate-200" },
+                "Toplam ", e("strong", {}, String(toplamHedef)), " kayda dosya bağlanacak."),
+            e("div", { className: "flex justify-end gap-3 pt-2 border-t border-slate-200 dark:border-slate-700" },
+                e("button", { onClick: onClose, className: "px-4 py-2 text-sm rounded-md bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200" }, "Kapat"),
+                e("button", { onClick: yukle, disabled: calisiyor || toplamHedef === 0,
+                    className: "px-4 py-2 text-sm rounded-md bg-sky-600 text-white hover:bg-sky-700 disabled:opacity-50" },
+                    calisiyor ? "Yükleniyor…" : "Yükle ve Bağla")
+            )
+        )
+    );
+};
+
+const AllCalibrationsView = ({ records, instruments, onEditRecord, onDeleteRecord, onBulkDelete, onBulkEdit, initialFilter , seciliKonum, setSeciliKonum, onAttachReports }) => {
+    const [topluRaporAcik, setTopluRaporAcik] = useState(false);
     const openReport = (reportFile) => {
         if (!reportFile) return;
         if (reportFile.previewUrl) { window.open(reportFile.previewUrl, '_blank'); return; }
@@ -3581,9 +3765,16 @@ const AllCalibrationsView = ({ records, instruments, onEditRecord, onDeleteRecor
 
     return (
         e("div", { className: "space-y-6" },
+             e(TopluRaporModal, { isOpen: topluRaporAcik, onClose: () => setTopluRaporAcik(false),
+                 records: records, instruments: instruments, onAttachReports: onAttachReports }),
              e("div", { className: "flex flex-wrap items-center justify-between gap-4" },
                 e("h1", { className: "text-3xl font-bold text-slate-900 dark:text-slate-100" }, "Tüm Kalibrasyon Kayıtları"),
                 e("div", { className: "flex items-center gap-2 flex-wrap" },
+                    e("button", {
+                        onClick: () => setTopluRaporAcik(true),
+                        title: "Sertifika ve doğrulama formlarını toplu yükle",
+                        className: "px-3 py-2 text-sm rounded-md bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-600"
+                    }, "Toplu Rapor Yükle"),
                     e("div", { className: "relative" },
                         e(MagnifyingGlassIcon, { className: "absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" }),
                         e("input", {
@@ -5070,7 +5261,7 @@ root.render(e(App));
   <!-- App Version Badge -->
   <div id="app-version" class="fixed bottom-3 right-3 z-40 pointer-events-none">
     <span class="inline-block px-2 py-1 text-xs rounded border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 shadow-sm">
-      Caltrack ver10.11.0
+      Caltrack ver10.12.0
     </span>
   </div>
 
