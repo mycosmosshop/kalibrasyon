@@ -1185,6 +1185,14 @@ return instruments.map(instrument => {
         setConfirmDeleteOpen(true);
     };
 
+    // Kayit KALIR, yalnizca ekli rapor dosyasi kaldirilir.
+    const handleBulkDetachReports = (ids) => {
+        const dosyali = calibrationRecords.filter(r => ids.includes(r.id) && r.reportFile);
+        if (!dosyali.length) { toastService.info('Seçili kayıtlarda rapor dosyası yok.'); return; }
+        setItemToDelete({ type: 'bulk_detach', ids: dosyali.map(r => r.id) });
+        setConfirmDeleteOpen(true);
+    };
+
     const handleBulkInstrumentEditSave = (updatedFields) => {
         const cleanUpdatedFields = Object.fromEntries(
             Object.entries(updatedFields).filter(([_, v]) => v !== null && v !== undefined && v !== '')
@@ -1265,13 +1273,14 @@ return instruments.map(instrument => {
         if (!itemToDelete) return null;
         const { type, ids } = itemToDelete;
         const cihazMi = (type === 'instrument' || type === 'bulk_instruments');
+        const ayirMi = (type === 'bulk_detach');
         const silinen = cihazMi
             ? calibrationRecords.filter(r => ids.includes(r.instrumentId))
             : calibrationRecords.filter(r => ids.includes(r.id));
         const silinenIdler = new Set(silinen.map(r => r.id));
         const kalan = calibrationRecords.filter(r => !silinenIdler.has(r.id));
         return {
-            cihazMi, cihaz: cihazMi ? ids.length : 0, kayit: silinen.length,
+            cihazMi, ayirMi, cihaz: cihazMi ? ids.length : 0, kayit: silinen.length,
             dosyalar: silinecekDriveDosyalari(silinen, kalan)
         };
     }, [itemToDelete, calibrationRecords]);
@@ -1282,7 +1291,11 @@ return instruments.map(instrument => {
     
         const { type, ids } = itemToDelete;
     
-        if (type === 'instrument' || type === 'bulk_instruments') {
+        if (type === 'bulk_detach') {
+            // Kayitlara dokunma, yalnizca rapor dosyasi baglantisini kaldir.
+            setCalibrationRecords(prev => prev.map(r =>
+                ids.includes(r.id) ? { ...r, reportFile: null } : r));
+        } else if (type === 'instrument' || type === 'bulk_instruments') {
             setInstruments(prev => prev.filter(i => !ids.includes(i.id)));
             setCalibrationRecords(prev => prev.filter(r => !ids.includes(r.instrumentId)));
         } else if (type === 'record' || type === 'bulk_records') {
@@ -2113,6 +2126,7 @@ return instruments.map(instrument => {
                             onEditRecord: handleEditRecord, 
                             onDeleteRecord: handleDeleteRecord,
                             onBulkDelete: handleBulkDeleteRecords,
+                            onBulkDetachReports: handleBulkDetachReports,
                             onBulkEdit: (ids) => { setEditingRecordIdsForBulk(ids); setBulkRecordEditModalOpen(true); },
                             initialFilter: allCalibrationsInitialFilter,
                             seciliKonum: seciliKonum, setSeciliKonum: setSeciliKonum,
@@ -2241,11 +2255,14 @@ return instruments.map(instrument => {
                 isOpen: isConfirmDeleteOpen,
                 onClose: () => setConfirmDeleteOpen(false),
                 onConfirm: confirmDelete,
-                title: "Silme Onayı",
+                title: (silmeOzeti && silmeOzeti.ayirMi) ? "Rapor Dosyasını Kaldır" : "Silme Onayı",
+                confirmText: (silmeOzeti && silmeOzeti.ayirMi) ? "Evet, Kaldır" : "Evet, Sil",
                 message: !silmeOzeti ? "Silmek istediğinizden emin misiniz?"
-                    : silmeOzeti.cihazMi
-                        ? silmeOzeti.cihaz + " cihaz ve bağlı " + silmeOzeti.kayit + " kayıt silinecek. Bu işlem geri alınamaz."
-                        : silmeOzeti.kayit + " kayıt silinecek. Bu işlem geri alınamaz.",
+                    : silmeOzeti.ayirMi
+                        ? silmeOzeti.kayit + " kaydın rapor dosyası kaldırılacak. Kayıtlar silinmez."
+                        : silmeOzeti.cihazMi
+                            ? silmeOzeti.cihaz + " cihaz ve bağlı " + silmeOzeti.kayit + " kayıt silinecek. Bu işlem geri alınamaz."
+                            : silmeOzeti.kayit + " kayıt silinecek. Bu işlem geri alınamaz.",
                 ek: (silmeOzeti && silmeOzeti.dosyalar.length)
                     ? e("label", { className: "flex items-start gap-3 p-3 rounded-lg bg-slate-100 dark:bg-slate-900/50 cursor-pointer select-none" },
                         e("input", { type: "checkbox", className: "h-4 w-4 mt-0.5", checked: driveDaSil,
@@ -3852,7 +3869,7 @@ const TopluRaporModal = ({ isOpen, onClose, records, instruments, onAttachReport
     );
 };
 
-const AllCalibrationsView = ({ records, instruments, onEditRecord, onDeleteRecord, onBulkDelete, onBulkEdit, initialFilter , seciliKonum, setSeciliKonum, onAttachReports }) => {
+const AllCalibrationsView = ({ records, instruments, onEditRecord, onDeleteRecord, onBulkDelete, onBulkEdit, onBulkDetachReports, initialFilter , seciliKonum, setSeciliKonum, onAttachReports }) => {
     const [topluRaporAcik, setTopluRaporAcik] = useState(false);
     const openReport = (reportFile) => {
         if (!reportFile) return;
@@ -4073,7 +4090,10 @@ const AllCalibrationsView = ({ records, instruments, onEditRecord, onDeleteRecor
                         e("button", { onClick: () => onBulkEdit(selectedIds), className: "px-3 py-1 text-sm rounded-md bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-600 border border-slate-300 dark:border-slate-600" },
                             "Toplu Düzenle"
                         ),
-                        e("button", { onClick: () => onBulkDelete(selectedIds), className: "px-3 py-1 text-sm rounded-md bg-red-500 text-white hover:bg-red-600" },
+                        e("button", { onClick: () => onBulkDetachReports(selectedIds), title: "Kayıtlar kalsın, yalnızca ekli rapor dosyası kaldırılsın", className: "px-3 py-1 text-sm rounded-md bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-600 border border-slate-300 dark:border-slate-600" },
+                            "Rapor Dosyasını Kaldır"
+                        ),
+                        e("button", { onClick: () => onBulkDelete(selectedIds), title: "Kayıtların kendisini sil", className: "px-3 py-1 text-sm rounded-md bg-red-500 text-white hover:bg-red-600" },
                             "Seçili Kayıtları Sil"
                         )
                     )
@@ -5508,7 +5528,7 @@ root.render(e(App));
   <!-- App Version Badge -->
   <div id="app-version" class="fixed bottom-3 right-3 z-40 pointer-events-none">
     <span class="inline-block px-2 py-1 text-xs rounded border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 shadow-sm">
-      Caltrack ver10.19.0
+      Caltrack ver10.20.0
     </span>
   </div>
 

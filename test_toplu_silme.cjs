@@ -168,4 +168,32 @@ const dosyasiz = (id) => ({ id, instrumentId: 'C1' });
     console.log('✓ 14 düğme adları ne sildiğini söylüyor');
 }
 
+// 15) "Rapor Dosyasini Kaldir": KAYIT KALIR, yalnizca dosya gider
+{
+    const bas = src.indexOf('const handleBulkDetachReports');
+    assert(bas > 0, '15a: toplu dosya kaldırma yok');
+    const g = src.slice(bas, src.indexOf('\n    const ', bas + 10));
+    assert(/type: 'bulk_detach'/.test(g), '15b: ayrı bir işlem türü kullanılmıyor');
+    assert(/r\.reportFile/.test(g), '15c: dosyası olan kayıtlar süzülmüyor');
+    assert(/rapor dosyası yok/.test(g), '15d: dosyasız seçimde boşuna onay soruyor');
+    // Uygulama tarafinda kayit SILINMEMELI
+    const uygula = src.indexOf("if (type === 'bulk_detach')");
+    assert(uygula > 0, '15e: uygulama dalı yok');
+    const u = src.slice(uygula, uygula + 260);
+    assert(/reportFile: null/.test(u), '15f: dosya bağlantısı kaldırılmıyor');
+    assert(!/filter\(r => !ids\.includes/.test(u), '15g: kaydı siliyor — kayıt kalmalı');
+    assert(/"Rapor Dosyasını Kaldır"/.test(src), '15h: düğme yok');
+    assert(/onBulkDetachReports: handleBulkDetachReports/.test(src), '15i: bağlanmamış');
+    console.log('✓ 15 "Rapor Dosyasını Kaldır" kaydı silmiyor, yalnızca dosyayı çıkarıyor');
+}
+
+// 16) Onay penceresi ikisini karistirmiyor
+{
+    assert(/silmeOzeti\.ayirMi/.test(src), '16a: iki işlem aynı metni gösteriyor');
+    assert(/rapor dosyası kaldırılacak\. Kayıtlar silinmez/.test(src), '16b: kaydın silinmediği yazmıyor');
+    assert(/"Evet, Kaldır"/.test(src), '16c: onay düğmesi hâlâ "Sil" diyor');
+    assert(/"Rapor Dosyasını Kaldır" : "Silme Onayı"/.test(src), '16d: başlık ayrışmıyor');
+    console.log('✓ 16 onay penceresi "kaldır" ile "sil" işlemini ayırıyor');
+}
+
 console.log('\nTüm senaryolar geçti.');
