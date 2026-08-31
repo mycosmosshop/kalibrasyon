@@ -4360,10 +4360,8 @@ const SettingsModal = ({ isOpen, onClose, settings, onSave, instruments, getInst
     const [genaiApiKey, setGenaiApiKey] = useState('');
     const [log, setLog] = useState([]);
     const [status, setStatus] = useState({ text: 'Başlatılmadı.', color: 'text-slate-500' });
-    const isSyncInFlight = useRef(false);
-    const lastHash = useRef('');
-    const debounceTimer = useRef(null);
-    const prevConfigRef = useRef(null);
+    // Sunucunun kendi bildirdigi durum (action=durum)
+    const [sunucuDurum, setSunucuDurum] = useState(null);
 
     useEffect(() => {
         setLocalSettings(settings);
@@ -4371,8 +4369,7 @@ const SettingsModal = ({ isOpen, onClose, settings, onSave, instruments, getInst
             setGenaiApiKey(localStorage.getItem('GENAI_API_KEY') || '');
             setLog([]);
             setStatus({ text: 'Hazır.', color: 'text-slate-500' });
-            lastHash.current = '';
-            prevConfigRef.current = null; // Reset on open to handle change detection correctly
+            setSunucuDurum(null);
         }
     }, [settings, isOpen]);
 
@@ -4405,107 +4402,32 @@ const SettingsModal = ({ isOpen, onClose, settings, onSave, instruments, getInst
                  const nextCalibrationDate = inst.lastCalibrationDate
                     ? calculateNextCalibrationDate(inst.lastCalibrationDate, inst.calibrationInterval)
                     : null;
+                // Alan adlari sunucudaki buildHtml ile AYNI olmali, yoksa
+                // test mailinde sutunlar bos gelir.
+                let daysLeft = null, sonraki = '';
+                if (nextCalibrationDate) {
+                    const n = new Date(nextCalibrationDate); n.setHours(0, 0, 0, 0);
+                    const bugun = new Date(); bugun.setHours(0, 0, 0, 0);
+                    daysLeft = Math.round((n - bugun) / 86400000);
+                    sonraki = ('0' + n.getDate()).slice(-2) + '.' + ('0' + (n.getMonth() + 1)).slice(-2) + '.' + n.getFullYear();
+                }
                 return {
                     name: inst.name,
-                    serial: inst.serialNumber,
+                    serialNumber: inst.serialNumber,
+                    department: inst.department || '',
+                    location: inst.location || '',
                     status: status,
-                    lastCalibration: inst.lastCalibrationDate || 'N/A',
-                    nextCalibration: nextCalibrationDate ? dateKeyOf(nextCalibrationDate) : 'N/A',
+                    lastCalibration: inst.lastCalibrationDate || '',
+                    nextCalibrationDate: sonraki,
+                    daysLeft: daysLeft,
                 };
             });
     }, [instruments, getInstrumentStatus, localSettings.thresholdDays]);
     
-    const hashDevices = (devs) => {
-        try {
-            let str = JSON.stringify(devs);
-            let h = 5381;
-            for (let i = 0; i < str.length; i++) h = ((h << 5) + h) ^ str.charCodeAt(i);
-            return (h >>> 0).toString(16);
-        } catch(e) {
-            return '';
-        }
-    };
 
-    const criticalInstrumentsHash = useMemo(() => hashDevices(criticalInstruments), [criticalInstruments]);
-
-    const handleSyncServerSnapshot = useCallback(async (reason, forceState) => {
-        if (isSyncInFlight.current) return;
-        const { serviceUrl: api, adminKey, toList, scheduleTime, thresholdDays: thr, scheduleEnabled } = localSettings;
-
-        const isEnabled = forceState !== undefined ? forceState : scheduleEnabled;
-        
-        if (!api || !adminKey) {
-            if (isEnabled) updateStatus("API URL ve Yönetici Anahtarı gerekli.", "text-red-500");
-            return;
-        }
-
-        try {
-            isSyncInFlight.current = true;
-            updateStatus("Senkronlanıyor…", "text-sky-500");
-            
-            const [hourStr, minuteStr] = (scheduleTime || '09:00').split(':');
-            let body = { adminKey, enabled: isEnabled };
-            
-            if (criticalInstrumentsHash === lastHash.current && !['manuel', 'toggle', 'periyodik', 'config_change'].includes(reason)) {
-                 addLog("Değişiklik yok, senkron atlandı.");
-                 if (status.text.startsWith("Hata")) {
-                    updateStatus(`Senkron OK (cihaz: ${criticalInstruments.length})`, "text-green-500");
-                 }
-                 isSyncInFlight.current = false;
-                 return;
-            }
-
-            if (isEnabled) {
-                 if (!toList) {
-                     updateStatus("Alıcı listesi gerekli.", "text-red-500");
-                     throw new Error("Alıcı listesi boş.");
-                 }
-                 if (criticalInstruments.length === 0) {
-                     addLog(`Senkron atlandı: Gönderilecek kritik cihaz yok.`);
-                 }
-                body = {
-                    ...body,
-                    toList: toList.split(",").map(s => s.trim()).filter(Boolean),
-                    hour: parseInt(hourStr, 10) || 9,
-                    minute: parseInt(minuteStr, 10) || 0,
-                    thresholdDays: Number(thr),
-                    mode: "snapshot",
-                    snapshotDevices: criticalInstruments
-                };
-            }
-
-            // Apps Script tabanlı cron kullanılıyor → sunucuya schedule KAYDI yapılmaz (no-op).
-            // Otomatik mail, Apps Script'teki 'dailyCheck' zaman tetikleyicisi ile gönderilir.
-            void body;
-            
-            if (isEnabled) {
-                lastHash.current = criticalInstrumentsHash;
-                updateStatus(`Senkron OK (cihaz: ${criticalInstruments.length})`, "text-green-500");
-                addLog(`Senkron tamamlandı (${reason}). Cihaz: ${criticalInstruments.length}. Durum: Etkin.`);
-                 if (reason === 'otomatik' || reason === 'periyodik' || reason === 'başlangıç' || reason === 'config_change') {
-                    toastService.success("Otomatik e-posta için veriler başarıyla gönderildi.");
-                }
-            } else {
-                lastHash.current = '';
-                updateStatus(`Raporlama Devre Dışı Bırakıldı`, "text-yellow-600");
-                addLog(`Senkron tamamlandı (${reason}). Durum: Devre Dışı.`);
-            }
-        } catch (e) {
-            updateStatus(`Hata: ${e.message}`, "text-red-500");
-            addLog(`HATA: ${e.message}`);
-        } finally {
-            isSyncInFlight.current = false;
-        }
-    }, [localSettings, criticalInstruments, criticalInstrumentsHash, status.text]);
 
     const handleChange = (e) => {
         const { name, value, type, checked } = e.target;
-         if (name === 'scheduleEnabled') {
-            const isEnabled = checked;
-            setLocalSettings(prev => ({ ...prev, scheduleEnabled: isEnabled }));
-            handleSyncServerSnapshot('toggle', isEnabled);
-            return;
-        }
         setLocalSettings(prev => ({
             ...prev,
             [name]: type === 'checkbox' ? checked : type ==='number' ? parseInt(value, 10) : value
@@ -4520,6 +4442,45 @@ const SettingsModal = ({ isOpen, onClose, settings, onSave, instruments, getInst
         }
     };
     
+    // Sunucu gercekten kurulu mu, ne zaman gonderdi, HANGI ayarlari goruyor?
+    // Apps Script /exec CORS'a kapali oldugu icin JSONP ile okunur.
+    const durumKontrol = () => {
+        const api = String(localSettings.serviceUrl || '').trim();
+        if (!api) { updateStatus("Önce Servis URL girin.", "text-red-500"); return; }
+        updateStatus("Sunucuya soruluyor…", "text-sky-500");
+        const cb = 'kalibDurum' + Date.now();
+        const sc = document.createElement('script');
+        const temizle = () => { try { delete window[cb]; } catch (_) { window[cb] = undefined; } sc.remove(); };
+        const zamanAsimi = setTimeout(() => {
+            temizle();
+            updateStatus("Sunucu yanıt vermedi. Servis URL doğru mu?", "text-red-500");
+            addLog("Durum sorgusu zaman aşımına uğradı.");
+        }, 20000);
+        window[cb] = (d) => {
+            clearTimeout(zamanAsimi); temizle();
+            setSunucuDurum(d || {});
+            const iyi = d && d.tetikleyici && d.veri;
+            updateStatus(iyi ? "Sunucu çalışıyor." : "Sunucuda eksik var — aşağıya bakın.",
+                iyi ? "text-green-500" : "text-red-500");
+            addLog("Sunucu durumu alındı.");
+        };
+        sc.onerror = () => {
+            clearTimeout(zamanAsimi); temizle();
+            updateStatus("Sunucuya ulaşılamadı.", "text-red-500");
+            addLog("HATA: sunucuya ulaşılamadı.");
+        };
+        sc.src = api + (api.indexOf('?') >= 0 ? '&' : '?') + 'action=durum&callback=' + cb + '&t=' + Date.now();
+        document.body.appendChild(sc);
+    };
+
+    const durumSatiri = (etiket, deger, iyi) => e("div", { className: "flex justify-between gap-4 px-3 py-2" },
+        e("span", { className: "text-slate-500 dark:text-slate-400" }, etiket),
+        e("span", {
+            className: "font-medium text-right " + (iyi === true ? "text-green-600 dark:text-green-400"
+                : iyi === false ? "text-red-600 dark:text-red-400" : "text-slate-800 dark:text-slate-200")
+        }, deger)
+    );
+
     const handleSendTestNow = async () => {
         const { serviceUrl: api, toList, thresholdDays: thr } = localSettings;
         try {
@@ -4546,63 +4507,6 @@ const SettingsModal = ({ isOpen, onClose, settings, onSave, instruments, getInst
         }
     };
     
-    useEffect(() => {
-        // Apps Script cron kullanılıyor → periyodik sunucu-snapshot senkronu KAPALI (Failed to fetch döngüsü önlenir).
-        if (debounceTimer.current) clearTimeout(debounceTimer.current);
-        return;
-        if (!isOpen || !localSettings.scheduleEnabled) {
-            if (debounceTimer.current) clearTimeout(debounceTimer.current);
-            prevConfigRef.current = null; // Reset when closed or disabled
-            return;
-        };
-        
-        if (prevConfigRef.current === null) {
-            prevConfigRef.current = {
-                time: localSettings.scheduleTime,
-                threshold: localSettings.thresholdDays
-            };
-        }
-
-        if (debounceTimer.current) clearTimeout(debounceTimer.current);
-        
-        debounceTimer.current = setTimeout(() => {
-            if (isOpen && localSettings.scheduleEnabled) {
-                const prevConfig = prevConfigRef.current || {};
-                const configChanged =
-                    prevConfig.time !== localSettings.scheduleTime ||
-                    prevConfig.threshold !== localSettings.thresholdDays;
-                
-                const reason = configChanged ? 'config_change' : 'otomatik';
-                handleSyncServerSnapshot(reason);
-
-                prevConfigRef.current = {
-                    time: localSettings.scheduleTime,
-                    threshold: localSettings.thresholdDays
-                };
-            }
-        }, 1200);
-
-        return () => {
-             if (debounceTimer.current) clearTimeout(debounceTimer.current);
-        };
-    }, [
-        localSettings.scheduleEnabled, 
-        criticalInstrumentsHash, 
-        isOpen, 
-        handleSyncServerSnapshot,
-        localSettings.scheduleTime,
-        localSettings.thresholdDays
-    ]);
-
-    useEffect(() => {
-        if (!isOpen || !localSettings.scheduleEnabled) return;
-        
-        const periodicInterval = setInterval(() => handleSyncServerSnapshot("periyodik"), 10 * 60 * 1000);
-
-        return () => {
-            clearInterval(periodicInterval);
-        };
-    }, [isOpen, localSettings.scheduleEnabled, handleSyncServerSnapshot]);
 
 
     return (
@@ -4621,13 +4525,13 @@ const SettingsModal = ({ isOpen, onClose, settings, onSave, instruments, getInst
                         e("div", {},
                            e("label", { htmlFor: "emailNotificationsEnabled", className: "flex items-center gap-3" },
                                 e("input", { type: "checkbox", id: "emailNotificationsEnabled", name: "emailNotificationsEnabled", checked: localSettings.emailNotificationsEnabled, onChange: handleChange, className: "h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500" }),
-                                e("span", { className: "text-sm font-medium" }, "Panel E-posta Bildirimlerini Etkinleştir")
+                                e("span", { className: "text-sm font-medium" }, "Elle Mail Taslağı (Gösterge Paneli)")
                             ),
                             e("p", { className: "text-xs text-slate-500 dark:text-slate-400 mt-1" },
-                                'Gösterge Panelindeki "Bildirim Maili Gönder" butonu için kullanılır.'
+                                'Gösterge Panelindeki "Bildirim Maili Gönder" butonu içindir; mail programınızda taslak açar. Otomatik mailin bununla ilgisi yoktur.'
                             )
                         ),
-                        e(FormInput, { label: "Panel Alıcı E-posta Adresi", id: "notificationEmail", name: "notificationEmail", type: "email", value: localSettings.notificationEmail, onChange: handleChange, disabled: !localSettings.emailNotificationsEnabled }),
+                        e(FormInput, { label: "Taslak kimin adresine açılsın", id: "notificationEmail", name: "notificationEmail", type: "email", value: localSettings.notificationEmail, onChange: handleChange, disabled: !localSettings.emailNotificationsEnabled }),
                         e("div", { className: "pt-2" },
                             e("label", { htmlFor: "backupOnExit", className: "flex items-center gap-3" },
                                 e("input", { type: "checkbox", id: "backupOnExit", name: "backupOnExit", checked: localSettings.backupOnExit, onChange: handleChange, className: "h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500" }),
@@ -4656,45 +4560,73 @@ const SettingsModal = ({ isOpen, onClose, settings, onSave, instruments, getInst
                 ),
 
                 e("div", { className: "p-4 border rounded-lg border-slate-300 dark:border-slate-600 space-y-4" },
-                    e("h3", { className: "text-lg font-semibold text-slate-800 dark:text-slate-100" },
-                       "Sunucuya Canlı Snapshot Senkronu (Otomatik Raporlama)"
-                    ),
+                    e("h3", { className: "text-lg font-semibold text-slate-800 dark:text-slate-100" }, "Otomatik Kalibrasyon Maili"),
                     e("p", { className: "text-sm text-slate-500 dark:text-slate-400" },
-                        "Bu araç, mevcut kritik cihaz listesini sunucuya göndererek otomatik raporlamayı yapılandırır. ", 
-                        e("strong", {className: "text-yellow-600 dark:text-yellow-400"}, "Yalnızca bu ayarlar penceresi açıkken otomatik olarak çalışır.")
+                        "Mail Google sunucusunda hazırlanıp gönderilir: ",
+                        e("strong", { className: "text-slate-700 dark:text-slate-200" }, "bilgisayarınız ve bu uygulama kapalıyken de gider."),
+                        " Uygulama yalnızca cihaz listesini ve aşağıdaki ayarları sunucuya iletir."
                     ),
-                     e("div", { className: "pt-2" },
-                        e("label", { className: "flex items-center gap-3 cursor-pointer select-none" },
-                            e("input", {
-                                type: "checkbox",
-                                id: "scheduleEnabled",
-                                name: "scheduleEnabled",
-                                checked: localSettings.scheduleEnabled,
-                                onChange: handleChange,
-                                className: "h-5 w-5 rounded border-slate-300 text-sky-600 focus:ring-sky-500 dark:border-slate-600 dark:bg-slate-900 dark:focus:ring-sky-600 dark:focus:ring-offset-slate-800"
-                            }),
-                            e("span", { className: "font-medium text-slate-800 dark:text-slate-200" }, "Otomatik Raporlamayı Etkinleştir")
+                    e("label", { className: "flex items-center gap-3 cursor-pointer select-none" },
+                        e("input", {
+                            type: "checkbox", id: "scheduleEnabled", name: "scheduleEnabled",
+                            checked: !!localSettings.scheduleEnabled, onChange: handleChange,
+                            className: "h-5 w-5 rounded border-slate-300 text-sky-600 focus:ring-sky-500 dark:border-slate-600 dark:bg-slate-900"
+                        }),
+                        e("span", { className: "font-medium text-slate-800 dark:text-slate-200" }, "Otomatik mail gönderilsin")
+                    ),
+                    e("div", { className: `grid grid-cols-1 md:grid-cols-3 gap-4 ${localSettings.scheduleEnabled ? '' : 'opacity-50'}` },
+                        e(FormInput, { label: "Kime gönderilsin (virgülle ayırın)", id: "toList", name: "toList", value: localSettings.toList, onChange: handleChange, disabled: !localSettings.scheduleEnabled, placeholder: "ad@firma.com, ad2@firma.com" }),
+                        e(FormInput, { label: "Her gün saat", id: "scheduleTime", name: "scheduleTime", type: "time", value: localSettings.scheduleTime, onChange: handleChange, disabled: !localSettings.scheduleEnabled }),
+                        e(FormInput, { label: "Kaç gün kala uyarsın", id: "thresholdDays", name: "thresholdDays", type: "number", value: localSettings.thresholdDays, onChange: handleChange, disabled: !localSettings.scheduleEnabled, min: "1" })
+                    ),
+                    e("p", { className: "text-sm text-slate-600 dark:text-slate-300" },
+                        "Bu ayarlarla şu an ",
+                        e("strong", {}, String(criticalInstruments.length)),
+                        " cihaz maile giriyor (gecikmiş ya da " + (localSettings.thresholdDays || 15) + " gün içinde dolacak). Hiç yoksa mail gönderilmez."
+                    ),
+                    e("details", { className: "text-sm" },
+                        e("summary", { className: "cursor-pointer text-slate-600 dark:text-slate-300 select-none" }, "Sunucu bağlantısı (bir kez ayarlanır)"),
+                        e("div", { className: "pt-3 space-y-2" },
+                            e(FormInput, { label: "Servis URL (Apps Script /exec)", id: "serviceUrl", name: "serviceUrl", value: localSettings.serviceUrl, onChange: handleChange, placeholder: "https://script.google.com/macros/s/.../exec" }),
+                            e("p", { className: "text-xs text-slate-500 dark:text-slate-400" },
+                                "Apps Script projesinde bir kez kurulum() çalıştırılmalıdır; saatlik tetikleyiciyi o kurar. Yapılıp yapılmadığını \"Durumu kontrol et\" söyler."
+                            )
                         )
-                    ),
-                    e("div", { className: `grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 transition-all duration-300 ${localSettings.scheduleEnabled ? 'opacity-100' : 'opacity-50'}` },
-                        e(FormInput, { label: "Servis URL (GAS /exec)", id: "serviceUrl", name: "serviceUrl", value: localSettings.serviceUrl, onChange: handleChange, placeholder: "https://script.google.com/macros/s/.../exec" }),
-                        e(FormInput, { label: "Yönetici Anahtarı", id: "adminKey", name: "adminKey", type: "password", value: localSettings.adminKey, onChange: handleChange, disabled: !localSettings.scheduleEnabled }),
-                        e(FormInput, { label: "Alıcı Listesi (virgülle ayırın)", id: "toList", name: "toList", value: localSettings.toList, onChange: handleChange, disabled: !localSettings.scheduleEnabled }),
-                        e(FormInput, { label: "Raporlama Zamanı", id: "scheduleTime", name: "scheduleTime", type: "time", value: localSettings.scheduleTime, onChange: handleChange, disabled: !localSettings.scheduleEnabled }),
-                        e(FormInput, { label: "Eşik Gün Sayısı", id: "thresholdDays", name: "thresholdDays", type: "number", value: localSettings.thresholdDays, onChange: handleChange, disabled: !localSettings.scheduleEnabled, min: "1" })
                     ),
                     e("div", { className: "flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 p-3 bg-slate-100 dark:bg-slate-900/50 rounded-lg" },
                          e("div", { className: "flex items-center gap-2" },
-                            e("div", { className: "w-3 h-3 rounded-full animate-pulse", style: { backgroundColor: status.color.includes('red') ? '#ef4444' : (status.color.includes('green') ? '#22c55e' : '#38bdf8') } }),
+                            e("div", { className: "w-3 h-3 rounded-full", style: { backgroundColor: status.color.includes('red') ? '#ef4444' : (status.color.includes('green') ? '#22c55e' : '#94a3b8') } }),
                             e("p", { className: `text-sm font-semibold ${status.color}`}, status.text)
                         ),
                         e("div", { className: "flex items-center gap-2" },
-                            e("button", { onClick: () => handleSyncServerSnapshot('manuel'), disabled: !localSettings.scheduleEnabled || isSyncInFlight.current, className: "px-3 py-1 text-xs rounded-md bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-600 border border-slate-300 dark:border-slate-600 disabled:opacity-50" }, "Manuel Senk."),
-                            e("button", { onClick: handleSendTestNow, disabled: !localSettings.scheduleEnabled || criticalInstruments.length === 0, className: "px-3 py-1 text-xs rounded-md bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-600 border border-slate-300 dark:border-slate-600 disabled:opacity-50" }, "Anlık Test Gönder")
+                            e("button", { onClick: durumKontrol, disabled: !localSettings.serviceUrl, className: "px-3 py-1 text-xs rounded-md bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-600 border border-slate-300 dark:border-slate-600 disabled:opacity-50" }, "Durumu kontrol et"),
+                            e("button", { onClick: handleSendTestNow, disabled: !localSettings.serviceUrl || criticalInstruments.length === 0, className: "px-3 py-1 text-xs rounded-md bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-600 border border-slate-300 dark:border-slate-600 disabled:opacity-50" }, "Test maili gönder")
                         )
                     ),
-                    e("div", { className: "h-24 bg-slate-900 text-slate-300 font-mono text-xs p-2 rounded-md overflow-y-auto" },
-                        log.length > 0 ? log.map((l, i) => e("p", { key: i }, l)) : e("p", {}, "Loglar burada görünecek...")
+                    sunucuDurum && e("div", { className: "text-sm border rounded-lg border-slate-300 dark:border-slate-600 divide-y divide-slate-200 dark:divide-slate-700" },
+                        durumSatiri("Saatlik tetikleyici",
+                            sunucuDurum.tetikleyici ? "kurulu" : "KURULU DEĞİL — Apps Script'te kurulum() çalıştırın",
+                            !!sunucuDurum.tetikleyici),
+                        durumSatiri("Sunucu veriyi okuyabiliyor",
+                            sunucuDurum.veri ? "evet" : "HAYIR — Supabase'e ulaşamıyor", !!sunucuDurum.veri),
+                        durumSatiri("Otomatik gönderim", sunucuDurum.acik ? "açık" : "kapalı", !!sunucuDurum.acik),
+                        durumSatiri("Sunucunun gördüğü alıcılar",
+                            (sunucuDurum.alicilar && sunucuDurum.alicilar.length) ? sunucuDurum.alicilar.join(", ") : "YOK",
+                            !!(sunucuDurum.alicilar && sunucuDurum.alicilar.length)),
+                        durumSatiri("Sunucunun gördüğü saat / eşik",
+                            (sunucuDurum.saat || "-") + " · " + (sunucuDurum.esik || "-") + " gün"),
+                        durumSatiri("Sunucudaki listede", (sunucuDurum.cihazSayisi != null ? sunucuDurum.cihazSayisi : "-") + " cihaz"),
+                        durumSatiri("Son otomatik gönderim", sunucuDurum.sonGonderim || "henüz yok"),
+                        durumSatiri("Sunucu saati", (sunucuDurum.sunucuSaati || "-") + " (" + (sunucuDurum.saatDilimi || "") + ")"),
+                        (sunucuDurum.veri && (
+                            String(sunucuDurum.saat) !== String(localSettings.scheduleTime) ||
+                            Number(sunucuDurum.esik) !== Number(localSettings.thresholdDays) ||
+                            (sunucuDurum.alicilar || []).join(",") !== String(localSettings.toList || "").split(",").map(x => x.trim()).filter(Boolean).join(",")
+                        )) && e("p", { className: "px-3 py-2 text-xs text-yellow-700 dark:text-yellow-400" },
+                            "Sunucudaki ayarlar buradakilerden farklı. Kaydet'e basın; birkaç saniye içinde eşitlenir.")
+                    ),
+                    log.length > 0 && e("div", { className: "h-24 bg-slate-900 text-slate-300 font-mono text-xs p-2 rounded-md overflow-y-auto" },
+                        log.map((l, i) => e("p", { key: i }, l))
                     )
                 ),
                 e("div", { className: "flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-700" },
@@ -5138,7 +5070,7 @@ root.render(e(App));
   <!-- App Version Badge -->
   <div id="app-version" class="fixed bottom-3 right-3 z-40 pointer-events-none">
     <span class="inline-block px-2 py-1 text-xs rounded border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 shadow-sm">
-      Caltrack ver10.10.1
+      Caltrack ver10.11.0
     </span>
   </div>
 

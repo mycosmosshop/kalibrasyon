@@ -23,17 +23,49 @@ var DEFAULT_THRESHOLD = 30; // ayarlarda yoksa varsayılan "yaklaşıyor" eşiğ
 
 // ---- Web app: warm-up / getResult (GET) ve işlem (POST) ----
 function doGet(e) {
-  if (e && e.parameter && e.parameter.action === 'getResult') {
-    var key = 'drive_' + e.parameter.id;
+  var p = (e && e.parameter) || {};
+  if (p.action === 'getResult') {
+    var key = 'drive_' + p.id;
     var stored = PropertiesService.getScriptProperties().getProperty(key);
     if (stored) {
       PropertiesService.getScriptProperties().deleteProperty(key);
-      return _json(JSON.parse(stored));
+      return _cikti(JSON.parse(stored), p.callback);
     }
-    return _json({ pending: true });
+    return _cikti({ pending: true }, p.callback);
   }
-  return ContentService.createTextOutput(JSON.stringify({ ok: true, service: 'kalibrasyon-mailer' }))
-    .setMimeType(ContentService.MimeType.JSON);
+  // Uygulamadaki "Durumu kontrol et" dugmesi buraya sorar.
+  if (p.action === 'durum') return _cikti(durumOzeti(), p.callback);
+  return _cikti({ ok: true, service: 'kalibrasyon-mailer' }, p.callback);
+}
+
+// Sunucunun kendi gercekleri: tetikleyici kurulu mu, en son ne zaman gonderdi,
+// Supabase'de hangi ayarlari goruyor, su an kac cihaz esige giriyor.
+function durumOzeti() {
+  var tz = Session.getScriptTimeZone();
+  var o = {
+    ok: true,
+    tetikleyici: false,
+    sonGonderim: PropertiesService.getScriptProperties().getProperty('sonGonderim') || '',
+    sunucuSaati: Utilities.formatDate(new Date(), tz, 'HH:mm'),
+    saatDilimi: tz
+  };
+  try {
+    o.tetikleyici = ScriptApp.getProjectTriggers().filter(function (t) {
+      return t.getHandlerFunction() === 'dailyCheck';
+    }).length > 0;
+  } catch (err) { o.tetikleyiciHata = String(err); }
+
+  var data = readSupabase();
+  if (!data) { o.veri = false; return o; }
+  o.veri = true;
+  var s = data.settings || {};
+  o.acik = s.scheduleEnabled !== false;
+  o.saat = String(s.scheduleTime || '09:00');
+  o.esik = Number(s.thresholdDays || s.reminderDays || DEFAULT_THRESHOLD);
+  o.alicilar = String(s.toList || s.notificationEmail || '')
+    .split(',').map(function (x) { return x.trim(); }).filter(Boolean);
+  o.cihazSayisi = _gecikenler(data.instruments || [], data.calibrationRecords || [], o.esik).length;
+  return o;
 }
 
 // ---- Drive PDF Yükleme ----
@@ -136,16 +168,30 @@ function dailyCheck() {
   var instruments = data.instruments || [];
   var records = data.calibrationRecords || [];
   var settings = data.settings || {};
-  if (settings.emailNotificationsEnabled === false) { Logger.log('Bildirim kapalı'); return; }
+  // NOT: 'emailNotificationsEnabled' UYGULAMADAKI elle taslak butonu icindir ve
+  // varsayilani kapalidir. Otomatik mail yalnizca scheduleEnabled'a bakar;
+  // aksi halde hic dokunulmamis bir kutu yuzunden mail sessizce hic gitmiyordu.
   if (settings.scheduleEnabled === false) { Logger.log('Otomatik raporlama kapalı'); return; }
   if (!_gonderimZamaniMi(settings)) return;
   var toList = String(settings.toList || settings.notificationEmail || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
   if (!toList.length) { Logger.log('Alıcı yok'); return; }
   var thr = Number(settings.thresholdDays || settings.reminderDays || DEFAULT_THRESHOLD);
 
+  var due = _gecikenler(instruments, records, thr);
+  if (!due.length) { Logger.log('Süresi yaklaşan cihaz yok'); return; }
+  var today = new Date(); today.setHours(0, 0, 0, 0);
+  var subject = 'Kalibrasyon — ' + due.length + ' cihaz: geciken/yaklaşan (' + _fmt(today) + ')';
+  var html = buildHtml(due, thr);
+  GmailApp.sendEmail(toList.join(','), subject, _strip(html), { htmlBody: html, name: 'Kalibrasyon Takip' });
+  _gonderimiIsaretle();
+  Logger.log('Gönderildi: ' + toList.join(',') + ' (' + due.length + ' cihaz)');
+}
+
+// ---- Gecikmis / esige girmis cihazlar (dailyCheck ve durumOzeti ayni listeyi kullanir) ----
+function _gecikenler(instruments, records, thr) {
   var today = new Date(); today.setHours(0, 0, 0, 0);
   var due = [];
-  instruments.forEach(function (inst) {
+  (instruments || []).forEach(function (inst) {
     var next = nextCalibrationDate(inst, records);
     if (!next) return;
     var diffDays = Math.round((next - today) / 86400000);
@@ -156,13 +202,8 @@ function dailyCheck() {
       });
     }
   });
-  if (!due.length) { Logger.log('Süresi yaklaşan cihaz yok'); return; }
   due.sort(function (a, b) { return a.daysLeft - b.daysLeft; });
-  var subject = 'Kalibrasyon — ' + due.length + ' cihaz: geciken/yaklaşan (' + _fmt(today) + ')';
-  var html = buildHtml(due, thr);
-  GmailApp.sendEmail(toList.join(','), subject, _strip(html), { htmlBody: html, name: 'Kalibrasyon Takip' });
-  _gonderimiIsaretle();
-  Logger.log('Gönderildi: ' + toList.join(',') + ' (' + due.length + ' cihaz)');
+  return due;
 }
 
 // ---- Supabase'den (service_role ile, RLS bypass) veriyi oku ----
@@ -223,6 +264,12 @@ function buildHtml(devices, thr) {
 
 // ---- yardımcılar ----
 function _json(o) { return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }
+// callback verilirse JSONP dondur: GitHub Pages'teki sayfa CORS'a takilmadan okur.
+function _cikti(o, cb) {
+  if (!cb) return _json(o);
+  return ContentService.createTextOutput(String(cb) + '(' + JSON.stringify(o) + ')')
+    .setMimeType(ContentService.MimeType.JAVASCRIPT);
+}
 function _strip(h) { return String(h).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(); }
 function _parse(v, dflt) { try { return (typeof v === 'string') ? JSON.parse(v) : (v || dflt); } catch (e) { return dflt; } }
 function _date(s) { if (!s) return null; var d = new Date(s); return isNaN(d.getTime()) ? null : d; }
