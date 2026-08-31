@@ -1219,7 +1219,7 @@ return instruments.map(instrument => {
         setCurrentView('instruments');
     };
 
-    const handleUnifiedImport = (data) => {
+    const handleUnifiedImport = (data, sayfaAdi) => {
         const parseDateToISO = (dateInput) => {
             if (!dateInput || (typeof dateInput === 'string' && dateInput.toLowerCase() === 'gg.aa.yyyy')) return null;
             if (dateInput instanceof Date) {
@@ -1263,11 +1263,28 @@ return instruments.map(instrument => {
             // aktarilinca cihazlar geliyor ama KAYITLARIN HICBIRI gelmiyordu.
             'İzin Ver. Sapma': 'permissibleDeviation',
             'Son Kalibrasyon': 'lastCalibrationDate',
+            // Sanifoam'in OZGUN PL12 formu (PL 12- Kalibrasyon Takip Plani)
+            'MAKİNA-BÖLÜM': 'name', 'İŞLEV': 'department',
+            'SERİ NUMARASI': 'serialNumber', 'Cihaz Kodu': 'id',
+            'TİPİ': 'model', 'ÖLÇME BİRİMİ': 'unit',
+            'ÖLÇME ARALIĞI': 'measurementRange',
+            'KABUL EDİLEN MAX. SAPMA DEĞERİ (+/-)': 'permissibleDeviation',
+            'KABUL EDİLEN MAX. SAPMA': 'permissibleDeviation',
+            'KALİBRASYON PERİYODU': 'calibrationInterval',
+            'ÖNCEKİ KALİBRASYON TARİHİ': 'lastCalibrationDate',
+            'KALİBRASYON FİRMASI': 'calibratingCompany',
+            'ELDE EDİLEN SAPMA DEĞERİ (+/-)': 'deviation',
+            'ELDE EDİLEN SAPMA DEĞERİ': 'deviation',
+            'ÖLÇÜM BELİRSİZLİĞİ (U)': 'uncertainty',
+            'ÖLÇÜM BELİRSİZLİĞİ': 'uncertainty',
             'Kal. Firması': 'calibratingCompany',
             'Doğrulayan': 'technician'
         };
 
         // Başlık/antet satırlarını atla: headerMap ile eşleşen ilk satırı gerçek header kabul et
+        // Baslik hucrelerinde satir sonu olabiliyor (ozgun PL12 formunda olcum araligi basligi iki satira bolunmus); bosluklar teke indirilir.
+        const _basAd = (h) => String(h == null ? '' : h).replace(/\s+/g, ' ').trim();
+
         // EN COK eslesen satiri baslik kabul et. Eskiden TEK eslesme yetiyordu:
         // antet satirinda gecen bir kelime ('Tarih', 'Model', 'Notlar'...) o
         // satiri baslik yapiyor, gercek baslik satiri veri sanilip her satir
@@ -1275,14 +1292,14 @@ return instruments.map(instrument => {
         let headerRowIndex = 0, enIyiEslesme = 0;
         for (let i = 0; i < Math.min(data.length, 15); i++) {
             const candidate = data[i] || [];
-            const eslesme = candidate.filter(cell => headerMap[String(cell == null ? '' : cell).trim()]).length;
+            const eslesme = candidate.filter(cell => headerMap[_basAd(cell)]).length;
             if (eslesme > enIyiEslesme) { enIyiEslesme = eslesme; headerRowIndex = i; }
         }
         // En az IKI sutun eslesmeli: tek kelimelik rastlanti baslik sayilmasin
         console.log('[ice aktarma] dosya okundu: ' + data.length + ' satir · '
             + 'baslik adayi: ' + (headerRowIndex + 1) + '. satir (' + enIyiEslesme + ' sutun eslesti)');
         const basliBulundu = enIyiEslesme >= 2;
-        const headerRow = (data[headerRowIndex] || []).map(h => String(h == null ? '' : h).trim());
+        const headerRow = (data[headerRowIndex] || []).map(_basAd);
         const rows = data.slice(headerRowIndex + 1);
 
         // Baslik satiri taninmadiysa her satir "bos" gorunur ve kullaniciya
@@ -1321,6 +1338,29 @@ return instruments.map(instrument => {
                 }
             });
     
+            // Ozgun PL12 formu: '1 YIL' / '2 YIL' -> ay
+            if (typeof rowData.calibrationInterval === 'string') {
+                const y = rowData.calibrationInterval.match(/(\d+)\s*YIL/i);
+                const ay = rowData.calibrationInterval.match(/(\d+)\s*AY/i);
+                if (y) rowData.calibrationInterval = parseInt(y[1], 10) * 12;
+                else if (ay) rowData.calibrationInterval = parseInt(ay[1], 10);
+            }
+            // '± 0,05mm' -> 0.05 (isaret, birim ve ondalik virgul temizlenir)
+            ['permissibleDeviation', 'deviation', 'uncertainty'].forEach(alan => {
+                if (typeof rowData[alan] !== 'string') return;
+                const t = rowData[alan].replace(/[±\s]/g, '').replace(',', '.')
+                    .match(/-?\d+(?:\.\d+)?/);
+                if (t) rowData[alan] = parseFloat(t[0]);
+            });
+            // Konum sutunu yoksa SAYFA ADINDAN cikar ('Ankara 2025' -> Ankara);
+            // yalnizca ayarlardaki konum listesinde gecen bir ad kabul edilir.
+            if (!rowData.location && sayfaAdi) {
+                const bul = (settings.locations || []).find(l =>
+                    String(sayfaAdi).toLocaleUpperCase('tr')
+                        .indexOf(String(l).toLocaleUpperCase('tr')) >= 0);
+                if (bul) rowData.location = bul;
+            }
+
             // Kontrol plani dosyalarinda ayri bir 'Tarih' sutunu yok; kayit
             // tarihi 'Son Kalibrasyon'dan alinir. Olmazsa kayit hic olusmaz.
             if (!rowData.date && rowData.lastCalibrationDate) {
@@ -1329,6 +1369,14 @@ return instruments.map(instrument => {
 
             if (!rowData.serialNumber && !rowData.id && !rowData.name) {
                 console.warn(`Satır ${rowIndex + 2} atlandı: boş satır (seri no / cihaz id / ad yok).`);
+                return;
+            }
+            // Form icindeki not satirlari ('Son Gözden Geçirme Tarihi: ...')
+            // cihaz adi sutununa TARIH dusuruyor ve sahte cihaz uretiyordu.
+            if (rowData.name instanceof Date
+                || (!rowData.serialNumber && !rowData.id
+                    && /^\w{3} \w{3} \d{2} \d{4}/.test(String(rowData.name)))) {
+                console.warn(`Satır ${rowIndex + 2} atlandı: cihaz adı tarih (not satırı).`);
                 return;
             }
 
@@ -4119,7 +4167,9 @@ const DataImportModal = ({ isOpen, onClose, onImport }) => {
                 if (data.length < 2) {
                     throw new Error(`Excel dosyası boş veya sadece başlık satırı içeriyor.`);
                 }
-                onImport(data);
+                // Ozgun PL12 formunda konum sutunu yok; sayfa adindan
+                // cikarilabilsin diye birlikte gonderiliyor.
+                onImport(data, wsname);
                 handleClose();
 
             } catch (e) {
@@ -5057,7 +5107,7 @@ root.render(e(App));
   <!-- App Version Badge -->
   <div id="app-version" class="fixed bottom-3 right-3 z-40 pointer-events-none">
     <span class="inline-block px-2 py-1 text-xs rounded border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 shadow-sm">
-      Caltrack ver10.9.8
+      Caltrack ver10.9.9
     </span>
   </div>
 

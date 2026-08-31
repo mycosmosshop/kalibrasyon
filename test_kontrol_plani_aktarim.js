@@ -36,7 +36,7 @@ function gercek(ad) {
 function aktar(mevcutCihaz, mevcutKayit) {
     const sonuc = { cihaz: null, kayit: null, mesaj: [] };
     const ortam = {
-        instruments: mevcutCihaz || [], calibrationRecords: mevcutKayit || [],
+        instruments: mevcutCihaz || [], calibrationRecords: mevcutKayit || [], settings: { locations: [] },
         setInstruments: v => { sonuc.cihaz = v; },
         setCalibrationRecords: v => { sonuc.kayit = v; },
         toastService: { info: m => sonuc.mesaj.push('info:' + m),
@@ -51,7 +51,7 @@ function aktar(mevcutCihaz, mevcutKayit) {
         console, String, Number, Object, Array, Date, Map, Set, JSON, Math, isNaN, parseInt, parseFloat
     };
     const F = new Function('__k', 'with (__k) {\n'
-        + govdeAl('const handleUnifiedImport = (data) => {')
+        + govdeAl('const handleUnifiedImport = (data, sayfaAdi) => {')
         + '\nreturn handleUnifiedImport;\n}')(
         new Proxy(ortam, { has: () => true, get: (t, p) => (p in t ? t[p] : function () {}) }));
     F(satirlar);

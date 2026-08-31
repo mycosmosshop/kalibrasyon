@@ -28,7 +28,7 @@ function gercek(ad) {
 function aktar(data) {
     const m = { hata: [], bilgi: [], ok: [] };
     const ortam = {
-        instruments: [], calibrationRecords: [],
+        instruments: [], calibrationRecords: [], settings: { locations: [] },
         setInstruments: () => {}, setCalibrationRecords: () => {},
         toastService: { error: t => m.hata.push(t), info: t => m.bilgi.push(t),
             success: t => m.ok.push(t), warning: () => {} },
@@ -42,7 +42,7 @@ function aktar(data) {
         console: { warn: () => {}, log: () => {} },
         String, Number, Object, Array, Date, Map, Set, JSON, Math, isNaN, parseInt, parseFloat
     };
-    new Function('__k', 'with (__k) {\n' + govdeAl('const handleUnifiedImport = (data) => {')
+    new Function('__k', 'with (__k) {\n' + govdeAl('const handleUnifiedImport = (data, sayfaAdi) => {')
         + '\nreturn handleUnifiedImport;\n}')(
         new Proxy(ortam, { has: () => true, get: (t, p) => (p in t ? t[p] : function () {}) }))(data);
     return m;
