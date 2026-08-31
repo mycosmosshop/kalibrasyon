@@ -140,21 +140,23 @@ function formSayfalariniAyir(base64Data, fileName, mimeType, subfolder, istenen)
         '&size=A4&portrait=false&fitw=true&gridlines=false&printtitle=false&sheetnames=false' +
         '&pagenumbers=false&fzr=false' +
         '&top_margin=0.3&bottom_margin=0.3&left_margin=0.3&right_margin=0.3';
-      // Arka arkaya 20 istek hiz sinirina takilabiliyor: basarisizsa bir kez
-      // daha denenir, istekler arasinda kisa bir bekleme birakilir.
-      var res = null;
-      for (var deneme = 0; deneme < 3; deneme++) {
+      // Arka arkaya gelen istekler hiz sinirina takiliyor. Basarisiz istek
+      // artan beklemeyle (2/4/8 sn) yeniden denenir; yine olmazsa sayfa adi
+      // HTTP koduyla birlikte bildirilir, sebep tahmin edilmez.
+      var res = null, sonKod = 0;
+      for (var deneme = 0; deneme < 4; deneme++) {
         res = UrlFetchApp.fetch(url, { muteHttpExceptions: true,
           headers: { Authorization: 'Bearer ' + token } });
-        if (res.getResponseCode() === 200) break;
-        Utilities.sleep(2000);
+        sonKod = res.getResponseCode();
+        if (sonKod === 200) break;
+        Utilities.sleep(2000 * Math.pow(2, deneme));
       }
-      if (!res || res.getResponseCode() !== 200) { hatali.push(sh.getName()); return; }
+      if (sonKod !== 200) { hatali.push(sh.getName() + ' (HTTP ' + sonKod + ')'); return; }
       var ad = taban + ' - ' + sh.getName() + '.pdf';
       var bilgi = _paylasilanDosya(folder, res.getBlob().setName(ad));
       sayfalar.push({ sayfa: sh.getName(), ad: ad, fileId: bilgi.fileId,
         driveUrl: bilgi.driveUrl, previewUrl: bilgi.previewUrl });
-      Utilities.sleep(400);
+      Utilities.sleep(1200);
     });
     return { success: true, sayfalar: sayfalar, hatali: hatali };
   } catch (err) {

@@ -141,7 +141,7 @@ function calistir(ad, o) {
         _raporKlasoru: () => 'KLASOR',
         _paylasilanDosya: (f, blob) => { olusan.push(blob.ad);
             return { fileId: 'id-' + blob.ad, driveUrl: 'u', previewUrl: 'p' }; },
-        String, JSON, Error, Array
+        String, JSON, Error, Array, Math
     };
     const ayir = calistir('formSayfalariniAyir', o);
     const r = ayir('BASE64', 'Şeritmetre Doğrulama Formlar.xls', 'application/vnd.ms-excel', '');
@@ -169,7 +169,7 @@ function calistir(ad, o) {
         UrlFetchApp: { fetch: fetchFn },
         _eTablayaDonustur: () => 'GECICI_ID', _raporKlasoru: () => 'K',
         _paylasilanDosya: () => ({ fileId: 'i', driveUrl: 'u', previewUrl: 'p' }),
-        String, JSON, Error, Array
+        String, JSON, Error, Array, Math
     });
     // basarili yol
     calistir('formSayfalariniAyir', temel(() => ({ getResponseCode: () => 200,
@@ -195,10 +195,10 @@ function calistir(ad, o) {
             getBlob: () => ({ setName: (x) => ({ ad: x }) }) }) },
         _eTablayaDonustur: () => 'G', _raporKlasoru: () => 'K',
         _paylasilanDosya: () => ({ fileId: 'i', driveUrl: 'u', previewUrl: 'p' }),
-        String, JSON, Error, Array
+        String, JSON, Error, Array, Math
     };
     const r = calistir('formSayfalariniAyir', o)('B', 'd.xls', 'x', '');
-    assert.deepStrictEqual(r.hatali, ['SM1'], '8a: ' + JSON.stringify(r.hatali));
+    assert.deepStrictEqual(r.hatali, ['SM1 (HTTP 500)'], '8a: kod bildirilmiyor: ' + JSON.stringify(r.hatali));
     assert.strictEqual(r.sayfalar.length, 1, '8b: diğer sayfa da düştü');
     console.log('✓ 8  bir sayfa çıkmazsa adı bildiriliyor, diğerleri yine üretiliyor');
 }
@@ -217,7 +217,7 @@ function calistir(ad, o) {
             return { getResponseCode: () => 200, getBlob: () => ({ setName: (n) => ({ ad: n }) }) }; } },
         _eTablayaDonustur: () => 'G', _raporKlasoru: () => 'K',
         _paylasilanDosya: (f, blob) => { olusan.push(blob.ad); return { fileId: 'i', driveUrl: 'u', previewUrl: 'p' }; },
-        String, JSON, Error, Array
+        String, JSON, Error, Array, Math
     };
     const ayir = calistir('formSayfalariniAyir', o);
     const r = ayir('B', 'defter.xls', 'x', '', ['SM2']);
@@ -242,7 +242,7 @@ function calistir(ad, o) {
             return { getResponseCode: () => 200, getBlob: () => ({ setName: (n) => ({ ad: n }) }) }; } },
         _eTablayaDonustur: () => 'G', _raporKlasoru: () => 'K',
         _paylasilanDosya: () => ({ fileId: 'i', driveUrl: 'u', previewUrl: 'p' }),
-        String, JSON, Error, Array
+        String, JSON, Error, Array, Math
     };
     const r = calistir('formSayfalariniAyir', o)('B', 'defter.xls', 'x', '', null);
     assert.strictEqual(r.sayfalar.length, 2, '10a: ' + r.sayfalar.length);
@@ -273,7 +273,7 @@ function calistir(ad, o) {
             return { getResponseCode: () => 200, getBlob: () => ({ setName: (x) => ({ ad: x }) }) }; } },
         _eTablayaDonustur: () => 'G', _raporKlasoru: () => 'K',
         _paylasilanDosya: () => ({ fileId: 'i', driveUrl: 'u', previewUrl: 'p' }),
-        String, JSON, Error, Array, encodeURIComponent
+        String, JSON, Error, Array, Math, encodeURIComponent
     };
     calistir('formSayfalariniAyir', o)('B', 'd.xls', 'x', '');
     assert.strictEqual(cagrilar.length, 1, '12a: ' + cagrilar.length);
@@ -295,7 +295,7 @@ function calistir(ad, o) {
             return { getResponseCode: () => kod, getBlob: () => ({ setName: (x) => ({ ad: x }) }) }; } },
         _eTablayaDonustur: () => 'G', _raporKlasoru: () => 'K',
         _paylasilanDosya: () => ({ fileId: 'i', driveUrl: 'u', previewUrl: 'p' }),
-        String, JSON, Error, Array, encodeURIComponent
+        String, JSON, Error, Array, Math, encodeURIComponent
     };
     const r = calistir('formSayfalariniAyir', o)('B', 'd.xls', 'x', '');
     assert.strictEqual(r.sayfalar.length, 1, '13a: geçici hatada sayfa düştü');
