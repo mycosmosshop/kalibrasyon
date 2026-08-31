@@ -755,6 +755,11 @@ const App = () => {
         }));
     }, [instruments]);
 
+    // Konum secimi UC EKRANDA ORTAK: gosterge paneli, cihazlar ve tum
+    // kayitlar ayni degeri kullanir. localStorage'da tutulur ki secim
+    // degistirilene kadar (sayfa yenilense de) korunsun.
+    const [seciliKonum, setSeciliKonum] = useLocalStorage('seciliKonum', '');
+
     const [currentView, setCurrentView] = useState('dashboard');
     const [allCalibrationsInitialFilter, setAllCalibrationsInitialFilter] = useState(null);
     const [instrumentListInitialFilter, setInstrumentListInitialFilter] = useState(null);
@@ -1990,7 +1995,8 @@ return instruments.map(instrument => {
                             onDeleteRecord: handleDeleteRecord,
                             onBulkDelete: handleBulkDeleteRecords,
                             onBulkEdit: (ids) => { setEditingRecordIdsForBulk(ids); setBulkRecordEditModalOpen(true); },
-                            initialFilter: allCalibrationsInitialFilter
+                            initialFilter: allCalibrationsInitialFilter,
+                            seciliKonum: seciliKonum, setSeciliKonum: setSeciliKonum
                         });
             case 'instruments':
                 return e(InstrumentList, { 
@@ -2006,7 +2012,8 @@ return instruments.map(instrument => {
                             onBulkEdit: (ids) => { setEditingInstrumentIdsForBulk(ids); setBulkInstrumentEditModalOpen(true); },
                             onSendNotification: handleSendFilteredNotification,
                             initialFilter: instrumentListInitialFilter,
-                            onNavigateToRecords: (instrumentId) => handleNavigation('all_calibrations', { searchTerm: instrumentId })
+                            onNavigateToRecords: (instrumentId) => handleNavigation('all_calibrations', { searchTerm: instrumentId }),
+                            seciliKonum: seciliKonum, setSeciliKonum: setSeciliKonum
                         });
             case 'dashboard':
             default:
@@ -2015,7 +2022,8 @@ return instruments.map(instrument => {
                             calibrationRecords: calibrationRecords, 
                             onNavigate: handleNavigation, 
                             onShowDetail: handleShowInstrumentDetail,
-                            settings: settings
+                            settings: settings,
+                            seciliKonum: seciliKonum, setSeciliKonum: setSeciliKonum
                         });
         }
     };
@@ -2133,11 +2141,14 @@ const StatCard = ({ icon, title, value, color, onClick }) => (
     )
 );
 
-const Dashboard = ({ instrumentsWithStatus: _tumCihazlar, calibrationRecords: _tumKayitlar, onNavigate, onShowDetail, settings }) => {
+const Dashboard = ({ instrumentsWithStatus: _tumCihazlar, calibrationRecords: _tumKayitlar, onNavigate, onShowDetail, settings, seciliKonum, setSeciliKonum }) => {
     // KONUM SUZGECI tek yerde: cihazlar konuma gore, kayitlar da o
     // cihazlarin kimliklerine gore suzuluyor. Asagidaki butun kartlar ve
     // grafikler bu ikisinden beslendigi icin hepsi birden takip ediyor.
-    const [konum, setKonum] = useState('');
+    // Ortak konum: burada secilen, Cihazlar ve Tum Kayitlar ekranlarinda
+    // da gecerli olur (secim degistirilene kadar).
+    const konum = seciliKonum || '';
+    const setKonum = setSeciliKonum;
     const konumlar = useMemo(() => [...new Set(_tumCihazlar.map(i => i.location).filter(Boolean))]
         .sort((a, b) => a.localeCompare(b, 'tr')), [_tumCihazlar]);
     const instrumentsWithStatus = useMemo(
@@ -2653,12 +2664,12 @@ const QuickFilterButton = ({ label, count, filterStatus, activeStatus, setFilter
     )
 );
 
-const InstrumentList = ({ instruments, onAddInstrument, onEditInstrument, onDeleteInstrument, onShowDetail, onAddRecord, onDataImport, onExport, onBulkDelete, onBulkEdit, onSendNotification, onNavigateToRecords, initialFilter }) => {
+const InstrumentList = ({ instruments, onAddInstrument, onEditInstrument, onDeleteInstrument, onShowDetail, onAddRecord, onDataImport, onExport, onBulkDelete, onBulkEdit, onSendNotification, onNavigateToRecords, initialFilter, seciliKonum, setSeciliKonum }) => {
     const [filters, setFilters] = useState({
         searchTerm: '',
         status: '',
         department: '',
-        location: '',
+        location: seciliKonum || '',
         dateFilterType: 'none',
         startDate: '',
         endDate: '',
@@ -2670,7 +2681,8 @@ const InstrumentList = ({ instruments, onAddInstrument, onEditInstrument, onDele
 
     useEffect(() => {
         const defaultFilters = {
-            searchTerm: '', status: '', department: '', location: '',
+            // Ortak konum secimi ekranlar arasi gecislerde de korunur
+            searchTerm: '', status: '', department: '', location: seciliKonum || '',
             dateFilterType: 'none', startDate: '', endDate: ''
         };
         if (initialFilter) {
@@ -2692,6 +2704,12 @@ const InstrumentList = ({ instruments, onAddInstrument, onEditInstrument, onDele
         }
     }, []); 
 
+
+    // Baska ekranda konum degisirse burasi da uysun
+    useEffect(() => {
+        setFilters(prev => (prev.location === (seciliKonum || '')
+            ? prev : { ...prev, location: seciliKonum || '' }));
+    }, [seciliKonum]);
 
     const visibleColumns = useMemo(() => columns.filter(c => c.visible), [columns]);
 
@@ -2884,7 +2902,8 @@ const InstrumentList = ({ instruments, onAddInstrument, onEditInstrument, onDele
                         id: "location",
                         name: "location",
                         value: filters.location,
-                        onChange: handleFilterChange,
+                        // Ortak secim: burada degisen gosterge panelinde de gecerli
+                        onChange: (ev) => { handleFilterChange(ev); setSeciliKonum(ev.target.value); },
                     },
                         e("option", { value: "" }, "Tüm Konumlar"),
                         locations.map(l => e("option", { key: l, value: l }, l))
@@ -2935,7 +2954,7 @@ const InstrumentList = ({ instruments, onAddInstrument, onEditInstrument, onDele
                 ),
                  e("div", { className: "flex justify-end pt-4 border-t dark:border-slate-700" },
                     e("button", {
-                        onClick: () => setFilters({ searchTerm: '', status: '', department: '', location: '', dateFilterType: 'none', startDate: '', endDate: '' }),
+                        onClick: () => { setSeciliKonum(''); setFilters({ searchTerm: '', status: '', department: '', location: '', dateFilterType: 'none', startDate: '', endDate: '' }); },
                         className: "flex items-center justify-center gap-2 px-4 py-2 text-sm font-semibold text-slate-700 bg-slate-200 dark:bg-slate-600 dark:text-slate-200 rounded-md hover:bg-slate-300 dark:hover:bg-slate-500 transition-colors"
                     },
                         e(ArrowPathIcon, {}), " Filtreyi Temizle"
@@ -3406,7 +3425,7 @@ const CorrectionTableModal = ({ isOpen, onClose, record, instrument }) => {
     );
 };
 
-const AllCalibrationsView = ({ records, instruments, onEditRecord, onDeleteRecord, onBulkDelete, onBulkEdit, initialFilter }) => {
+const AllCalibrationsView = ({ records, instruments, onEditRecord, onDeleteRecord, onBulkDelete, onBulkEdit, initialFilter , seciliKonum, setSeciliKonum }) => {
     const openReport = (reportFile) => {
         if (!reportFile) return;
         if (reportFile.previewUrl) { window.open(reportFile.previewUrl, '_blank'); return; }
@@ -3419,7 +3438,13 @@ const AllCalibrationsView = ({ records, instruments, onEditRecord, onDeleteRecor
         }
         toastService.error('Rapor dosyası bulunamadı.');
     };
-    const [filters, setFilters] = useState({ searchTerm: '', result: '', recordType: '', location: '' });
+    const [filters, setFilters] = useState({ searchTerm: '', result: '', recordType: '', location: seciliKonum || '' });
+
+    // Ortak konum: baska ekranda degisirse burasi da uyar
+    useEffect(() => {
+        setFilters(prev => (prev.location === (seciliKonum || '')
+            ? prev : { ...prev, location: seciliKonum || '' }));
+    }, [seciliKonum]);
     const [columns, setColumns] = useLocalStorage('allCalibrationsTableColumns', ALL_CALIBRATIONS_COLUMNS);
     const [isViewSettingsOpen, setViewSettingsOpen] = useState(false);
     const [sortConfig, setSortConfig] = useState({ key: 'date', direction: 'descending' });
@@ -3431,7 +3456,7 @@ const AllCalibrationsView = ({ records, instruments, onEditRecord, onDeleteRecor
             searchTerm: initialFilter?.searchTerm || '',
             result: initialFilter?.result || '',
             recordType: initialFilter?.recordType || '',
-            location: initialFilter?.location || ''
+            location: initialFilter?.location || seciliKonum || ''
         });
     }, [initialFilter]);
 
@@ -3573,7 +3598,8 @@ const AllCalibrationsView = ({ records, instruments, onEditRecord, onDeleteRecor
                     e(FormSelect, {
                         name: "location",
                         value: filters.location,
-                        onChange: handleFilterChange,
+                        // Ortak secim: burada degisen diger ekranlarda da gecerli
+                        onChange: (ev) => { handleFilterChange(ev); setSeciliKonum(ev.target.value); },
                         className: "py-2"
                     },
                         e("option", { value: "" }, "Tüm Konumlar"),
@@ -5112,7 +5138,7 @@ root.render(e(App));
   <!-- App Version Badge -->
   <div id="app-version" class="fixed bottom-3 right-3 z-40 pointer-events-none">
     <span class="inline-block px-2 py-1 text-xs rounded border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 shadow-sm">
-      Caltrack ver10.10.0
+      Caltrack ver10.10.1
     </span>
   </div>
 
