@@ -115,7 +115,7 @@ function uploadFileToDrive(base64Data, fileName, mimeType, subfolder) {
 // Kullanicinin dosyasi DEGISTIRILMEZ: Drive'da gecici bir Google E-Tablo'ya
 // donusturulur, her sekme ayri PDF olarak disa aktarilir, gecici kopya silinir.
 // Boylece her kayda kendi FR39 sayfasi baglanir.
-function formSayfalariniAyir(base64Data, fileName, mimeType, subfolder) {
+function formSayfalariniAyir(base64Data, fileName, mimeType, subfolder, istenen) {
   var geciciId = null;
   try {
     geciciId = _eTablayaDonustur(base64Data,
@@ -125,7 +125,11 @@ function formSayfalariniAyir(base64Data, fileName, mimeType, subfolder) {
     var token = ScriptApp.getOAuthToken();
     var taban = String(fileName).replace(/\.[^.]+$/, '');
     var sayfalar = [], hatali = [];
+    // istenen verilmisse yalnizca o sayfalar disa aktarilir; yoksa hepsi.
+    // Boylece tek bir kayit icin defterin tamami PDF'e cevrilmez.
+    var sadece = (istenen && istenen.length) ? istenen : null;
     ss.getSheets().forEach(function (sh) {
+      if (sadece && sadece.indexOf(sh.getName()) < 0) return;
       var url = 'https://docs.google.com/spreadsheets/d/' + geciciId +
         '/export?format=pdf&gid=' + sh.getSheetId() +
         '&size=A4&portrait=false&fitw=true&gridlines=false&printtitle=false&sheetnames=false' +
@@ -204,7 +208,8 @@ function doPost(e) {
 
     // Cok sayfali dogrulama defterini sayfa sayfa PDF'e ayir
     if (body.action === 'formSayfalari') {
-      var ayrilan = formSayfalariniAyir(body.base64, body.filename, body.mimeType, body.subfolder || '');
+      var ayrilan = formSayfalariniAyir(body.base64, body.filename, body.mimeType,
+        body.subfolder || '', body.sayfalar || null);
       if (body.requestId) {
         PropertiesService.getScriptProperties().setProperty('drive_' + body.requestId, JSON.stringify(ayrilan));
       }

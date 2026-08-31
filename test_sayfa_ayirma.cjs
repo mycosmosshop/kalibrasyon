@@ -7,6 +7,7 @@
 const fs = require('fs'), assert = require('assert');
 const KOK = 'C:/Users/User/Desktop/_erp_deploy/kalibrasyon-clone/';
 const gs = fs.readFileSync(KOK + 'KALIBRASYON-MAILER.gs', 'utf8');
+const src = fs.readFileSync(KOK + 'index.html', 'utf8');
 
 function govde(bas) {
     const i = gs.indexOf(bas);
@@ -200,6 +201,62 @@ function calistir(ad, o) {
     assert.deepStrictEqual(r.hatali, ['SM1'], '8a: ' + JSON.stringify(r.hatali));
     assert.strictEqual(r.sayfalar.length, 1, '8b: diğer sayfa da düştü');
     console.log('✓ 8  bir sayfa çıkmazsa adı bildiriliyor, diğerleri yine üretiliyor');
+}
+
+// 9) Yalnizca ISTENEN sayfalar PDF'e cevriliyor
+{
+    const cagrilar = [], olusan = [];
+    const sayfalar = [{ ad: 'SM1', gid: 1 }, { ad: 'SM2', gid: 2 }, { ad: 'SM3', gid: 3 }];
+    const o = {
+        Utilities: { base64Decode: () => DOSYA_BAYT, newBlob: (b, t, n) => ({ getContentType: () => t, getBytes: () => DOSYA_BAYT }) },
+        ScriptApp: { getOAuthToken: () => 'T' },
+        SpreadsheetApp: { openById: () => ({ getSheets: () => sayfalar.map(s => ({
+            getSheetId: () => s.gid, getName: () => s.ad })) }) },
+        DriveApp: { getFileById: () => ({ setTrashed: () => {} }), Access: {}, Permission: {} },
+        UrlFetchApp: { fetch: (u) => { cagrilar.push(u);
+            return { getResponseCode: () => 200, getBlob: () => ({ setName: (n) => ({ ad: n }) }) }; } },
+        _eTablayaDonustur: () => 'G', _raporKlasoru: () => 'K',
+        _paylasilanDosya: (f, blob) => { olusan.push(blob.ad); return { fileId: 'i', driveUrl: 'u', previewUrl: 'p' }; },
+        String, JSON, Error, Array
+    };
+    const ayir = calistir('formSayfalariniAyir', o);
+    const r = ayir('B', 'defter.xls', 'x', '', ['SM2']);
+    assert.strictEqual(r.sayfalar.length, 1, '9a: üretilen PDF ' + r.sayfalar.length + ' (1 olmalı)');
+    assert.strictEqual(r.sayfalar[0].sayfa, 'SM2', '9b: yanlış sayfa: ' + r.sayfalar[0].sayfa);
+    assert.strictEqual(cagrilar.length, 1, '9c: ' + cagrilar.length + ' dışa aktarma isteği — gereksiz PDF üretiliyor');
+    assert(cagrilar[0].indexOf('gid=2') >= 0, '9d: yanlış sayfanın gid\'i');
+    console.log('✓ 9  yalnızca istenen sayfa dışa aktarılıyor (Drive\'da öksüz PDF kalmıyor)');
+}
+
+// 10) Istenen verilmezse eski davranis: hepsi
+{
+    const cagrilar = [];
+    const sayfalar = [{ ad: 'SM1', gid: 1 }, { ad: 'SM2', gid: 2 }];
+    const o = {
+        Utilities: { base64Decode: () => DOSYA_BAYT, newBlob: (b, t, n) => ({ getContentType: () => t, getBytes: () => DOSYA_BAYT }) },
+        ScriptApp: { getOAuthToken: () => 'T' },
+        SpreadsheetApp: { openById: () => ({ getSheets: () => sayfalar.map(s => ({
+            getSheetId: () => s.gid, getName: () => s.ad })) }) },
+        DriveApp: { getFileById: () => ({ setTrashed: () => {} }), Access: {}, Permission: {} },
+        UrlFetchApp: { fetch: (u) => { cagrilar.push(u);
+            return { getResponseCode: () => 200, getBlob: () => ({ setName: (n) => ({ ad: n }) }) }; } },
+        _eTablayaDonustur: () => 'G', _raporKlasoru: () => 'K',
+        _paylasilanDosya: () => ({ fileId: 'i', driveUrl: 'u', previewUrl: 'p' }),
+        String, JSON, Error, Array
+    };
+    const r = calistir('formSayfalariniAyir', o)('B', 'defter.xls', 'x', '', null);
+    assert.strictEqual(r.sayfalar.length, 2, '10a: ' + r.sayfalar.length);
+    assert.strictEqual(cagrilar.length, 2, '10b: ' + cagrilar.length);
+    console.log('✓ 10 sayfa listesi verilmezse hepsi çıkarılıyor (eski davranış korunuyor)');
+}
+
+// 11) Uygulama gereken sayfalari bildiriyor
+{
+    assert(/sayfalar: sayfalar \|\| null/.test(src), '11a: istek sayfa listesi taşımıyor');
+    assert(/const gereken = Array\.from\(new Set\(es\.hedefler\.map\(h => h\.sayfa\)/.test(src),
+        '11b: uygulama gereken sayfaları hesaplamıyor');
+    assert(/formSayfalariniYukle\(file, 'Doğrulama Formları', gereken\)/.test(src), '11c: gönderilmiyor');
+    console.log('✓ 11 uygulama yalnızca bağlanacak kayıtların sayfalarını istiyor');
 }
 
 console.log('\nTüm senaryolar geçti.');
