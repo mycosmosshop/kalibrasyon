@@ -60,7 +60,7 @@
   }
 }
 </script>
-<link rel="stylesheet" href="/index.css">
+<!-- index.css kaldirildi: dosya bostu ve kokten cagrildigi icin 404 veriyordu -->
     <!-- ERP ortak acik/koyu tema (portal ile senkron; yalniz gorunum) -->
     <script src="https://mycosmosshop.github.io/erp-portal/erp-theme.js"></script>
 </head>
@@ -112,7 +112,8 @@
           }
 
           // 4. Yeni service worker'ı kaydet.
-          const swUrl = new URL('sw.js', location.origin);
+          // Kok kapsam yerine modulun KENDI klasoru: /kalibrasyon/sw.js
+          const swUrl = new URL('sw.js', location.href);
           const reg = await navigator.serviceWorker.register(swUrl);
           
           // Kayıt nesnesini, uygulamanın kullanabilmesi için global olarak erişilebilir yap.
@@ -5045,12 +5046,12 @@ const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(e(App));
 
 </script>
-<script type="module" src="/index.tsx"></script>
+<!-- index.tsx kaldirildi: dosya bostu ve kokten cagrildigi icin 404 veriyordu -->
 
   <!-- App Version Badge -->
   <div id="app-version" class="fixed bottom-3 right-3 z-40 pointer-events-none">
     <span class="inline-block px-2 py-1 text-xs rounded border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 shadow-sm">
-      Caltrack ver10.9.6
+      Caltrack ver10.9.7
     </span>
   </div>
 
