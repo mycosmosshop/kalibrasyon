@@ -138,4 +138,32 @@ const dosyasiz = (id) => ({ id, instrumentId: 'C1' });
     console.log('✓ 11 silinen kayıt ve cihaz değişimi seçimi kirletmiyor');
 }
 
+// 12) Cihazlar ekraninda "Sadece Kayitlari Sil": cihazlar KALIR
+{
+    const bas = src.indexOf('const handleBulkDeleteInstrumentRecords');
+    assert(bas > 0, '12a: cihazları tutup kayıtları silme yolu yok');
+    // Yalnizca bu fonksiyonun govdesi: bir sonraki bildirime kadar
+    const g = src.slice(bas, src.indexOf('\n    const ', bas + 10));
+    // Kayit silme yoluna gitmeli; cihaz silme yoluna DEGIL
+    assert(/handleBulkDeleteRecords\(ids\)/.test(g), '12b: kayıt silme yoluna gitmiyor');
+    assert(!/setInstruments/.test(g), '12c: cihazlara dokunuyor — cihazlar kalmalı');
+    assert(/r\.instrumentId/.test(g), '12d: seçili cihazların kayıtları toplanmıyor');
+    assert(/silinecek kayıt yok/.test(g), '12e: kayıt yokken sessiz kalıyor');
+    assert(/"Sadece Kayıtları Sil"/.test(src), '12f: düğme yok');
+    assert(/onBulkDeleteInstrumentRecords: handleBulkDeleteInstrumentRecords/.test(src), '12g: bağlanmamış');
+    console.log('✓ 12 "Sadece Kayıtları Sil" cihazları silmeden geçmişi temizliyor');
+}
+
+// 13) Iki dugme birbirine karismiyor
+{
+    assert(/"Cihazları Sil"/.test(src), '13a: cihaz silme düğmesi adlandırılmamış');
+    const i = src.indexOf('"Sadece Kayıtları Sil"'), j = src.indexOf('"Cihazları Sil"');
+    assert(i > 0 && j > i, '13b: düğme sırası');
+    // Cihaz silme hala cihaz yoluna gitmeli
+    const k = src.slice(i - 400, j + 400);
+    assert(/onBulkDelete\(selectedIds\)/.test(k), '13c: cihaz silme bozulmuş');
+    assert(/onBulkDeleteInstrumentRecords\(selectedIds\)/.test(k), '13d: kayıt silme bağlanmamış');
+    console.log('✓ 13 "Cihazları Sil" eski davranışını koruyor, ikisi ayrı');
+}
+
 console.log('\nTüm senaryolar geçti.');
