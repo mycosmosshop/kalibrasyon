@@ -116,55 +116,39 @@ function uploadFileToDrive(base64Data, fileName, mimeType, subfolder) {
 // donusturulur, her sekme ayri PDF olarak disa aktarilir, gecici kopya silinir.
 // Boylece her kayda kendi FR39 sayfasi baglanir.
 function formSayfalariniAyir(base64Data, fileName, mimeType, subfolder, istenen) {
-  var geciciId = null;
   try {
-    geciciId = _eTablayaDonustur(base64Data,
-      mimeType || 'application/vnd.ms-excel', 'gecici-' + fileName);
-    var ss = SpreadsheetApp.openById(geciciId);
-    var folder = _raporKlasoru(subfolder || 'Doğrulama Formları');
-    var token = ScriptApp.getOAuthToken();
-    var taban = String(fileName).replace(/\.[^.]+$/, '');
-    var sayfalar = [], hatali = [];
-    // istenen verilmisse yalnizca o sayfalar disa aktarilir; yoksa hepsi.
-    // Boylece tek bir kayit icin defterin tamami PDF'e cevrilmez.
+    var klasor = _raporKlasoru(subfolder || 'Doğrulama Formları');
+    var ad = String(fileName).replace(/\.[^.]+$/, '');
+
+    // Ayni defter icin TEK E-Tablo: varsa yeniden kullanilir, yoksa bir kez
+    // cevrilir. Boylece her yuklemede yeniden donusturme olmaz.
+    var id = null;
+    var mevcut = klasor.getFilesByName(ad);
+    if (mevcut.hasNext()) id = mevcut.next().getId();
+    if (!id) {
+      id = _eTablayaDonustur(base64Data, mimeType || 'application/vnd.ms-excel', ad);
+      var dosya = DriveApp.getFileById(id);
+      try { dosya.moveTo(klasor); } catch (e1) {}
+      try { dosya.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch (e2) {}
+    }
+
+    // Her kayit kendi sayfasina baglanir: ...#gid=<sayfa>
+    var ss = SpreadsheetApp.openById(id);
+    var temel = 'https://docs.google.com/spreadsheets/d/' + id + '/edit#gid=';
     var sadece = (istenen && istenen.length) ? istenen : null;
+    var sayfalar = [];
     ss.getSheets().forEach(function (sh) {
       if (sadece && sadece.indexOf(sh.getName()) < 0) return;
-      // Yalnizca DOLU hucre araligi basilsin: aralik verilmezse Google
-      // sayfanin tum izgarasini basiyor ve formdan sonrasi bos sayfa oluyor.
-      var aralik = '';
-      try { aralik = sh.getDataRange().getA1Notation(); } catch (e2) {}
-      var url = 'https://docs.google.com/spreadsheets/d/' + geciciId +
-        '/export?format=pdf&gid=' + sh.getSheetId() +
-        (aralik ? '&range=' + encodeURIComponent(aralik) : '') +
-        // scale=4: TUM icerigi tek sayfaya sigdirir. fitw (genislige sigdir) sagdaki
-        // sutunlari kesiyordu.
-        '&size=A4&portrait=false&scale=4&gridlines=false&printtitle=false&sheetnames=false' +
-        '&pagenumbers=false&fzr=false' +
-        '&top_margin=0.3&bottom_margin=0.3&left_margin=0.3&right_margin=0.3';
-      // Arka arkaya gelen istekler hiz sinirina takiliyor. Basarisiz istek
-      // artan beklemeyle (2/4/8 sn) yeniden denenir; yine olmazsa sayfa adi
-      // HTTP koduyla birlikte bildirilir, sebep tahmin edilmez.
-      var res = null, sonKod = 0;
-      for (var deneme = 0; deneme < 4; deneme++) {
-        res = UrlFetchApp.fetch(url, { muteHttpExceptions: true,
-          headers: { Authorization: 'Bearer ' + token } });
-        sonKod = res.getResponseCode();
-        if (sonKod === 200) break;
-        Utilities.sleep(2000 * Math.pow(2, deneme));
-      }
-      if (sonKod !== 200) { hatali.push(sh.getName() + ' (HTTP ' + sonKod + ')'); return; }
-      var ad = taban + ' - ' + sh.getName() + '.pdf';
-      var bilgi = _paylasilanDosya(folder, res.getBlob().setName(ad));
-      sayfalar.push({ sayfa: sh.getName(), ad: ad, fileId: bilgi.fileId,
-        driveUrl: bilgi.driveUrl, previewUrl: bilgi.previewUrl });
-      Utilities.sleep(1200);
+      sayfalar.push({
+        sayfa: sh.getName(), ad: ad + ' - ' + sh.getName(),
+        fileId: id,
+        driveUrl: temel + sh.getSheetId(),
+        previewUrl: temel + sh.getSheetId()
+      });
     });
-    return { success: true, sayfalar: sayfalar, hatali: hatali };
+    return { success: true, sayfalar: sayfalar, hatali: [] };
   } catch (err) {
     return { success: false, error: String(err) };
-  } finally {
-    if (geciciId) { try { DriveApp.getFileById(geciciId).setTrashed(true); } catch (e2) {} }
   }
 }
 
