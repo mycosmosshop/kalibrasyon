@@ -1267,16 +1267,33 @@ return instruments.map(instrument => {
         };
 
         // Başlık/antet satırlarını atla: headerMap ile eşleşen ilk satırı gerçek header kabul et
-        let headerRowIndex = 0;
+        // EN COK eslesen satiri baslik kabul et. Eskiden TEK eslesme yetiyordu:
+        // antet satirinda gecen bir kelime ('Tarih', 'Model', 'Notlar'...) o
+        // satiri baslik yapiyor, gercek baslik satiri veri sanilip her satir
+        // veri sanilip atlaniyordu.
+        let headerRowIndex = 0, enIyiEslesme = 0;
         for (let i = 0; i < Math.min(data.length, 15); i++) {
             const candidate = data[i] || [];
-            if (candidate.some(cell => headerMap[String(cell == null ? '' : cell).trim()])) {
-                headerRowIndex = i;
-                break;
-            }
+            const eslesme = candidate.filter(cell => headerMap[String(cell == null ? '' : cell).trim()]).length;
+            if (eslesme > enIyiEslesme) { enIyiEslesme = eslesme; headerRowIndex = i; }
         }
+        // En az IKI sutun eslesmeli: tek kelimelik rastlanti baslik sayilmasin
+        const basliBulundu = enIyiEslesme >= 2;
         const headerRow = (data[headerRowIndex] || []).map(h => String(h == null ? '' : h).trim());
         const rows = data.slice(headerRowIndex + 1);
+
+        // Baslik satiri taninmadiysa her satir "bos" gorunur ve kullaniciya
+        // yalnizca "veri bulunamadi" denirdi; hangi dosyanin/sutunun sorunlu
+        // oldugu anlasilmazdi. Artik ne bulundugu ve ne beklendigi yazilir.
+        if (!basliBulundu) {
+            const ilk = (data[0] || []).filter(c => String(c == null ? '' : c).trim())
+                .slice(0, 6).join(' | ') || '(boş)';
+            toastService.error('Başlık satırı bulunamadı — bu dosya kontrol planı '
+                + 'biçiminde değil.' + String.fromCharCode(10,10) + 'Dosyada okunan ilk satır: ' + ilk
+                + String.fromCharCode(10,10) + 'Beklenen sütunlar: Cihaz Adı, Seri No, Konum, Departman, '
+                + 'Son Kalibrasyon, Kayıt Tipi …');
+            return;
+        }
 
         const newRecords = [];
         const newInstrumentsFromExcel = new Map();
@@ -1373,7 +1390,14 @@ return instruments.map(instrument => {
         });
         
         if (updatedInstrumentsMap.size === 0 && newInstrumentsFromExcel.size === 0 && newRecords.length === 0) {
-            toastService.info("İçe aktarılacak yeni veya güncellenecek veri bulunamadı.");
+            // Sadece "bulunamadi" demek teshis birakmiyordu: kac satir okundu,
+            // hangi basliklar taninmadi -> hepsi yazilsin.
+            const taninmayan = headerRow.filter(h => h && !headerMap[h]);
+            toastService.info('İçe aktarılacak veri bulunamadı.' + String.fromCharCode(10,10)
+                + 'Başlık satırı: ' + (headerRowIndex + 1) + '. satır · '
+                + 'okunan veri satırı: ' + rows.length + String.fromCharCode(10)
+                + (taninmayan.length ? 'Tanınmayan sütunlar: ' + taninmayan.join(', ') : 'Tüm sütunlar tanındı')
+                + String.fromCharCode(10,10) + 'Satırlarda Cihaz Adı ve Seri No dolu mu?');
             setDataImportOpen(false);
             return;
         }
@@ -5026,7 +5050,7 @@ root.render(e(App));
   <!-- App Version Badge -->
   <div id="app-version" class="fixed bottom-3 right-3 z-40 pointer-events-none">
     <span class="inline-block px-2 py-1 text-xs rounded border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 shadow-sm">
-      Caltrack ver10.9.5
+      Caltrack ver10.9.6
     </span>
   </div>
 
