@@ -166,4 +166,13 @@ const dosyasiz = (id) => ({ id, instrumentId: 'C1' });
     console.log('✓ 13 "Cihazları Sil" eski davranışını koruyor, ikisi ayrı');
 }
 
+// 14) Dugme adlari ne sildiklerini soyluyor (belirsiz "Toplu Sil" kalmadi)
+{
+    assert(!/"Toplu Sil"/.test(src), '14a: belirsiz "Toplu Sil" etiketi duruyor');
+    assert(/"Seçili Kayıtları Sil"/.test(src), '14b: Tüm Kayıtlar ekranındaki etiket');
+    assert(/"Sadece Kayıtları Sil"/.test(src), '14c: Cihazlar ekranındaki kayıt silme');
+    assert(/"Cihazları Sil"/.test(src), '14d: Cihazlar ekranındaki cihaz silme');
+    console.log('✓ 14 üç düğmenin de adı ne sildiğini söylüyor');
+}
+
 console.log('\nTüm senaryolar geçti.');
