@@ -10,7 +10,10 @@
  *   - SERVICE_ROLE_KEY'i Supabase panelinden al (Settings → API → service_role secret) ve aşağıya yaz.
  *   - Dağıt → Web uygulaması → "Beni"; erişim "Herkes" → /exec URL'sini kopyala.
  *   - Uygulama Ayarlar → "Servis URL" alanına o /exec URL'sini yapıştır.
- *   - OTOMATİK için: Tetikleyiciler (saat ikonu) → Tetikleyici ekle → dailyCheck → Zaman güdümlü → Gün → istediğin saat.
+ *   - OTOMATİK için: Apps Script'te bir kez kurulum() fonksiyonunu çalıştırın.
+ *     SAATLİK tetikleyici kurar; gönderim saati artık uygulamadaki
+ *     Ayarlar → "Raporlama Zamanı" alanından belirlenir (Apps Script'e
+ *     bir daha girmeniz gerekmez).
  ********************************************************************************/
 
 var SUPA_URL = 'https://chchaielttnimuuezazb.supabase.co';
@@ -95,6 +98,38 @@ function doPost(e) {
 }
 
 // ---- OTOMATİK günlük kontrol (tetikleyiciye bağla) ----
+// BİR KEZ çalıştırın: saatlik tetikleyici kurar. Gönderim saati artık
+// uygulamadaki "Raporlama Zamanı" alanından belirlenir.
+function kurulum() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'dailyCheck') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('dailyCheck').timeBased().everyHours(1).create();
+  Logger.log('Saatlik tetikleyici kuruldu. Gönderim saati uygulamadan ayarlanır.');
+}
+
+// Ayarlanan saat geldi mi? Tetikleyici saatlik çalışır; gönderim yalnız
+// uygulamadaki "Raporlama Zamanı" saatinde yapılır. Aynı gün ikinci kez
+// gönderilmemesi için tarih damgası tutulur.
+function _gonderimZamaniMi(settings) {
+  var tz = Session.getScriptTimeZone();
+  var simdi = new Date();
+  var parca = String(settings.scheduleTime || '09:00').split(':');
+  var hedef = parseInt(parca[0], 10);
+  if (isNaN(hedef) || hedef < 0 || hedef > 23) hedef = 9;
+  var saat = Number(Utilities.formatDate(simdi, tz, 'H'));
+  if (saat !== hedef) { Logger.log('Saat ' + saat + ', hedef ' + hedef + ' — beklenecek'); return false; }
+  var bugun = Utilities.formatDate(simdi, tz, 'yyyy-MM-dd');
+  if (PropertiesService.getScriptProperties().getProperty('sonGonderim') === bugun) {
+    Logger.log('Bugün zaten gönderildi'); return false;
+  }
+  return true;
+}
+function _gonderimiIsaretle() {
+  PropertiesService.getScriptProperties().setProperty('sonGonderim',
+    Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd'));
+}
+
 function dailyCheck() {
   var data = readSupabase();
   if (!data) { Logger.log('Veri okunamadı'); return; }
@@ -102,6 +137,8 @@ function dailyCheck() {
   var records = data.calibrationRecords || [];
   var settings = data.settings || {};
   if (settings.emailNotificationsEnabled === false) { Logger.log('Bildirim kapalı'); return; }
+  if (settings.scheduleEnabled === false) { Logger.log('Otomatik raporlama kapalı'); return; }
+  if (!_gonderimZamaniMi(settings)) return;
   var toList = String(settings.toList || settings.notificationEmail || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
   if (!toList.length) { Logger.log('Alıcı yok'); return; }
   var thr = Number(settings.thresholdDays || settings.reminderDays || DEFAULT_THRESHOLD);
@@ -124,6 +161,7 @@ function dailyCheck() {
   var subject = 'Kalibrasyon — ' + due.length + ' cihaz: geciken/yaklaşan (' + _fmt(today) + ')';
   var html = buildHtml(due, thr);
   GmailApp.sendEmail(toList.join(','), subject, _strip(html), { htmlBody: html, name: 'Kalibrasyon Takip' });
+  _gonderimiIsaretle();
   Logger.log('Gönderildi: ' + toList.join(',') + ' (' + due.length + ' cihaz)');
 }
 
