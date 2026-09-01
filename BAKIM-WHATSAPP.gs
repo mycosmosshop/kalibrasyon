@@ -17,8 +17,14 @@
  *       I allow callmebot to send me messages
  *  3) Gelen cevapta "your apikey is 123456" yazar.
  *  4) Apps Script > Proje Ayarlari > Komut Dosyasi Ozellikleri:
- *       BAKIM_WA_TEL  = +905xxxxxxxxx      (Hasan Bey'in numarasi)
- *       BAKIM_WA_KEY  = 123456             (gelen apikey)
+ *       BAKIM_WA_TEL  = +905xxxxxxxxx      (1. alici)
+ *       BAKIM_WA_KEY  = 123456             (o aliciya gelen apikey)
+ *     Ikinci alici icin (her alici KENDI telefonundan izin verir ve KENDI
+ *     anahtarini alir — anahtar aliciya baglidir, ortak degildir):
+ *       BAKIM_WA_TEL2 = +905xxxxxxxxx
+ *       BAKIM_WA_KEY2 = 654321
+ *     5 aliciya kadar (TEL3/KEY3 ...). Numaralar ve anahtarlar YALNIZCA
+ *     burada durur — bu depo herkese acik, koda yazilmaz.
  *     Istege bagli:
  *       BAKIM_ESIK_GUN  = 7                (kac gun oncesinden haber versin)
  *       BAKIM_SAAT      = 8                (gunun hangi saatinden sonra)
@@ -113,9 +119,25 @@ function bakimMetni(liste, lokasyon) {
        + '\n\nPlani kontrol edebilir misiniz?';
 }
 
+// ── Alicilar ───────────────────────────────────────────────────────
+// CallMeBot'ta apikey ALICIYA baglidir; her alici kendi telefonundan izin
+// verip kendi anahtarini alir. Bu yuzden (telefon, anahtar) cift halinde:
+//   BAKIM_WA_TEL  / BAKIM_WA_KEY    (1. alici)
+//   BAKIM_WA_TEL2 / BAKIM_WA_KEY2   (2. alici)  ... 5'e kadar
+function bakimAlicilar() {
+  var out = [];
+  for (var i = 1; i <= 5; i++) {
+    var ek = (i === 1) ? '' : String(i);
+    var tel = _bakimAyar('BAKIM_WA_TEL' + ek, '');
+    var key = _bakimAyar('BAKIM_WA_KEY' + ek, '');
+    if (tel && key) out.push({ tel: tel, key: key });
+  }
+  return out;
+}
+
 // ── CallMeBot ile gonderim ─────────────────────────────────────────
-function _waGonder(tel, metin) {
-  var key = _bakimAyar('BAKIM_WA_KEY', '');
+function _waGonder(tel, metin, key) {
+  key = key || _bakimAyar('BAKIM_WA_KEY', '');
   if (!key) return { ok: false, hata: 'BAKIM_WA_KEY tanimli degil' };
   if (!tel) return { ok: false, hata: 'BAKIM_WA_TEL tanimli degil' };
   var url = 'https://api.callmebot.com/whatsapp.php'
@@ -158,17 +180,26 @@ function bakimKontrol() {
   var liste = bakimYaklasanlar(veri, esik);
   if (!liste.length) { _bakimDamgala(); Logger.log('yaklasan bakim yok'); return; }
 
-  var son = _waGonder(_bakimAyar('BAKIM_WA_TEL', ''), bakimMetni(liste, veri.lokasyon));
-  Logger.log('WhatsApp: ' + JSON.stringify(son));
-  // Basarisizsa damgalama — bir sonraki saatte yeniden denesin.
-  if (son.ok) {
-    _bakimDamgala();
+  var alicilar = bakimAlicilar();
+  if (!alicilar.length) {
     PropertiesService.getScriptProperties()
-      .setProperty('BAKIM_SON_SONUC', liste.length + ' bakim gonderildi');
-  } else {
-    PropertiesService.getScriptProperties()
-      .setProperty('BAKIM_SON_SONUC', 'HATA: ' + (son.hata || son.kod + ' ' + son.yanit));
+      .setProperty('BAKIM_SON_SONUC', 'HATA: alici tanimli degil (BAKIM_WA_TEL / BAKIM_WA_KEY)');
+    return;
   }
+  var metin = bakimMetni(liste, veri.lokasyon);
+  var basarili = 0, hatalar = [];
+  for (var i = 0; i < alicilar.length; i++) {
+    var son = _waGonder(alicilar[i].tel, metin, alicilar[i].key);
+    Logger.log('WhatsApp ' + alicilar[i].tel + ': ' + JSON.stringify(son));
+    if (son.ok) basarili++;
+    else hatalar.push(alicilar[i].tel.slice(-4) + ': ' + (son.hata || son.kod + ' ' + son.yanit));
+  }
+  // HEPSI basarisizsa damgalama — bir sonraki saatte yeniden denesin.
+  // En az biri gittiyse damgala; yoksa gidenlere her saat tekrar mesaj gider.
+  if (basarili > 0) _bakimDamgala();
+  PropertiesService.getScriptProperties().setProperty('BAKIM_SON_SONUC',
+    basarili + '/' + alicilar.length + ' aliciya ' + liste.length + ' bakim'
+    + (hatalar.length ? ' — HATA: ' + hatalar.join(' | ') : ''));
 }
 
 /** Elle deneme: saat/gunluk kisitlari atlar, damga yazmaz. */
@@ -180,7 +211,12 @@ function bakimTestGonder() {
   var metin = liste.length ? bakimMetni(liste, veri.lokasyon)
     : 'Sanifoam Bakim - deneme mesaji. Su an esige giren bakim yok.';
   Logger.log(metin);
-  Logger.log('SONUC: ' + JSON.stringify(_waGonder(_bakimAyar('BAKIM_WA_TEL', ''), metin)));
+  var alicilar = bakimAlicilar();
+  if (!alicilar.length) { Logger.log('alici tanimli degil'); return; }
+  for (var i = 0; i < alicilar.length; i++) {
+    Logger.log(alicilar[i].tel + ' >> '
+      + JSON.stringify(_waGonder(alicilar[i].tel, metin, alicilar[i].key)));
+  }
 }
 
 /** CMMS "Durumu kontrol et" bunu okur. */
@@ -191,11 +227,16 @@ function bakimDurumu() {
   for (var i = 0; i < t.length; i++) {
     if (t[i].getHandlerFunction() === 'bakimKontrol') tetik = true;
   }
-  var tel = _bakimAyar('BAKIM_WA_TEL', '');
+  var alicilar = bakimAlicilar();
+  var maske = [];
+  for (var a = 0; a < alicilar.length; a++) {
+    maske.push(alicilar[a].tel.slice(0, 4) + '****' + alicilar[a].tel.slice(-2));
+  }
   return {
     tetikleyici: tetik,
-    anahtarVar: !!_bakimAyar('BAKIM_WA_KEY', ''),
-    telefon: tel ? (tel.slice(0, 4) + '****' + tel.slice(-2)) : '',
+    anahtarVar: alicilar.length > 0,
+    aliciSayisi: alicilar.length,
+    telefon: maske.join(', '),
     esikGun: esik,
     saat: parseInt(_bakimAyar('BAKIM_SAAT', '8'), 10),
     teknisyen: _bakimAyar('BAKIM_TEKNISYEN', ''),
