@@ -22,7 +22,9 @@
  *     (telefonla arama). Onun anahtariyla whatsapp.php calismaz.
  *  3) Gelen cevapta "your apikey is 123456" yazar.
  *  4) Apps Script > Proje Ayarlari > Komut Dosyasi Ozellikleri:
- *       BAKIM_WA_TEL  = +905xxxxxxxxx      (1. alici)
+ *       BAKIM_WA_TEL  = 905xxxxxxxxx       (1. alici — '+' sart degil,
+ *                                          hangi bicimde yazarsaniz yazin
+ *                                          rakamlara indirgenir)
  *       BAKIM_WA_KEY  = 123456             (o aliciya gelen apikey)
  *     Ikinci alici icin (her alici KENDI telefonundan izin verir ve KENDI
  *     anahtarini alir — anahtar aliciya baglidir, ortak degildir):
@@ -130,6 +132,17 @@ function bakimMetni(liste, lokasyon) {
 // verip kendi anahtarini alir. Bu yuzden (telefon, anahtar) cift halinde:
 //   BAKIM_WA_TEL  / BAKIM_WA_KEY    (1. alici)
 //   BAKIM_WA_TEL2 / BAKIM_WA_KEY2   (2. alici)  ... 5'e kadar
+// CallMeBot numarayi '+' ve bosluk olmadan bekliyor (kendi ornek adresi
+// oyle). encodeURIComponent '+' isaretini %2B yapar ve istek sessizce
+// bosa gider — bu yuzden yalnizca rakamlar birakilir. Boylece
+// "+90 5xx xxx xx xx", "05xx...", "905xx..." hepsi calisir.
+function _waTelSade(tel) {
+  var d = String(tel || '').replace(/[^0-9]/g, '');
+  if (d.length === 10 && d.charAt(0) === '5') d = '90' + d;      // 5xx...
+  else if (d.length === 11 && d.charAt(0) === '0') d = '90' + d.slice(1);  // 05xx...
+  return d;
+}
+
 function bakimAlicilar() {
   var out = [];
   for (var i = 1; i <= 5; i++) {
@@ -147,7 +160,7 @@ function _waGonder(tel, metin, key) {
   if (!key) return { ok: false, hata: 'BAKIM_WA_KEY tanimli degil' };
   if (!tel) return { ok: false, hata: 'BAKIM_WA_TEL tanimli degil' };
   var url = 'https://api.callmebot.com/whatsapp.php'
-          + '?phone=' + encodeURIComponent(tel)
+          + '?phone=' + encodeURIComponent(_waTelSade(tel))
           + '&text=' + encodeURIComponent(metin)
           + '&apikey=' + encodeURIComponent(key);
   var r = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
