@@ -199,7 +199,9 @@ function bakimAlicilar(onek) {
     var ek = (i === 1) ? '' : String(i);
     var tel = _bakimAyar(onek + 'TEL' + ek, '');
     var key = _bakimAyar(onek + 'KEY' + ek, '');
-    if (tel && key) out.push({ tel: tel, key: key });
+    // Yuva numarasi tasinir: bos yuvalar atlandigi icin dizideki sira
+    // yuva numarasiyla ayni degil. Ekranda 'hangi yuva bos' bunu kullanir.
+    if (tel && key) out.push({ tel: tel, key: key, yuva: i });
   }
   return out;
 }
@@ -401,10 +403,12 @@ function bakimDurumu() {
   }
   var gruplar = bakimGruplari(), gOzet = [], toplamAlici = 0;
   for (var gi = 0; gi < gruplar.length; gi++) {
-    var gr = gruplar[gi], maske = [];
+    var gr = gruplar[gi], maske = [], yuvalar = [];
     for (var a = 0; a < gr.alicilar.length; a++) {
       var t2 = gr.alicilar[a].tel.replace(/[^0-9]/g, '');
-      maske.push(t2.slice(0, 4) + '****' + t2.slice(-2));   // anahtar hic verilmez
+      var m2 = t2.slice(0, 4) + '****' + t2.slice(-2);      // anahtar hic verilmez
+      maske.push(m2);
+      yuvalar.push({ no: gr.alicilar[a].yuva, maske: m2 });
     }
     toplamAlici += gr.alicilar.length;
     gOzet.push({
@@ -413,6 +417,7 @@ function bakimDurumu() {
       teknisyen: gr.teknisyen || '(hepsi)',
       esikGun: gr.esik,
       alicilar: maske.join(', '),
+      yuvalar: yuvalar,
       yaklasan: veri ? bakimYaklasanlar(veri, gr.esik,
         { teknisyen: gr.teknisyen, lokasyon: gr.lokasyon }).length : 0,
       sonGonderim: _bakimAyar(gr.damga, ''),
