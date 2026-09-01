@@ -53,7 +53,7 @@ function _benimAdresim() {
 //   (Sanifoam Google Workspace'te ise bu betigi dogrudan o hesapta
 //   calistirmak yeterli, alias gerekmez.)
 // Sonra: Apps Script → ⚙ Proje Ayarlari → Komut Dosyasi Ozellikleri →
-//   GONDEREN_ADRES = volkan.pekatik@sanifoam.com   (kendi adresin)
+//   GONDEREN_ADRES = <kurumsal adresin>            (ornek: kalite@firma.com)
 var PERF_GONDEREN_ANAHTAR = 'GONDEREN_ADRES';
 
 function _gonderenAdres() {
