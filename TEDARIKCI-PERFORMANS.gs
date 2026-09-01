@@ -122,48 +122,77 @@ function _damgala(anahtar, deger) {
   PropertiesService.getScriptProperties().setProperty(anahtar, deger);
 }
 
-// ── Mail govdesi ───────────────────────────────────────────────────
-// Yorum: hedefe ulasilip ulasilmadigini SAYIYLA soyler, "basarili/
-// basarisiz" gibi yoruma acik ifade kullanmaz.
-function _durumMetni(gercek, hedef) {
-  if (!hedef) return '<span style="color:#777">Hedef tanımlı değil</span>';
-  if (gercek <= hedef) return '<span style="color:#2e7d32;font-weight:600">Hedef içinde</span>';
-  return '<span style="color:#c62828;font-weight:600">Hedef aşıldı</span>';
+// ── Mail govdesi (gonder.py ile AYNI icerik) ──────────────────────
+function _sayi(n) {
+  var x = Number(n);
+  if (isNaN(x)) return String(n);
+  return Math.round(x).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
 }
 
-function _govde(r, ceyrek) {
-  var satir = function (baslik, gercek, hedef, sonraki, birim) {
-    return '<tr>'
-      + '<td style="padding:8px 10px;border:1px solid #e0e0e0;font-weight:600">' + baslik + '</td>'
-      + '<td style="padding:8px 10px;border:1px solid #e0e0e0;text-align:right">' + gercek + birim + '</td>'
-      + '<td style="padding:8px 10px;border:1px solid #e0e0e0;text-align:right">' + hedef + birim + '</td>'
-      + '<td style="padding:8px 10px;border:1px solid #e0e0e0;text-align:center">' + _durumMetni(gercek, hedef) + '</td>'
-      + '<td style="padding:8px 10px;border:1px solid #e0e0e0;text-align:right">' + sonraki + birim + '</td>'
-      + '</tr>';
-  };
-  return ''
-    + '<div style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#222;max-width:680px">'
+function _durumMetni(gercek, hedef) {
+  if (!hedef) return '<span style="color:#6b7280">Hedef tanımlı değil</span>';
+  if (gercek <= hedef) return '<span style="color:#1e7e34;font-weight:600">Hedef içinde</span>';
+  return '<span style="color:#c0392b;font-weight:600">Hedef aşıldı</span>';
+}
+
+function _govde(r, donem) {
+  var H = 'padding:7px 10px;border:1px solid #dfe3e8';
+  var S = H + ';text-align:right';
+  var aylar = r.aylar || [];
+
+  var satirlar = '';
+  var ts = 0, ti = 0;
+  aylar.forEach(function (a) {
+    ts += Number(a.sevk) || 0;
+    ti += Number(a.iade) || 0;
+    satirlar += '<tr><td style="' + H + '">' + (a.ad || '') + '</td>'
+      + '<td style="' + S + '">' + _sayi(a.sevk) + '</td>'
+      + '<td style="' + S + '">' + _sayi(a.iade) + '</td>'
+      + '<td style="' + S + '">' + _sayi(a.ppm) + '</td>'
+      + '<td style="' + S + '">' + _sayi(a.hata) + '</td></tr>';
+  });
+
+  var ayTablo = '';
+  if (satirlar) {
+    ayTablo = '<p style="margin:18px 0 6px;font-weight:600">Aylık döküm</p>'
+      + '<table style="border-collapse:collapse;width:100%;font-size:13px">'
+      + '<thead><tr style="background:#f4f6f8">'
+      + '<th style="' + H + ';text-align:left">Ay</th>'
+      + '<th style="' + S + '">Sevkiyat</th><th style="' + S + '">İade</th>'
+      + '<th style="' + S + '">PPM</th><th style="' + S + '">Hata</th>'
+      + '</tr></thead><tbody>' + satirlar
+      + '<tr style="background:#fafbfc;font-weight:600">'
+      + '<td style="' + H + '">Toplam</td>'
+      + '<td style="' + S + '">' + _sayi(ts) + '</td>'
+      + '<td style="' + S + '">' + _sayi(ti) + '</td>'
+      + '<td style="' + S + '">' + _sayi(r.ppm) + '</td>'
+      + '<td style="' + S + '">' + _sayi(r.hata) + '</td></tr>'
+      + '</tbody></table>';
+  }
+
+  function hsat(baslik, gercek, hedef, birim) {
+    return '<tr><td style="' + H + '">' + baslik + '</td>'
+      + '<td style="' + S + '">' + _sayi(gercek) + birim + '</td>'
+      + '<td style="' + S + '">' + _sayi(hedef) + birim + '</td>'
+      + '<td style="' + H + ';text-align:center">' + _durumMetni(gercek, hedef) + '</td></tr>';
+  }
+
+  return '<div style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#1f2937;max-width:720px">'
     + '<p>Sayın Yetkili,</p>'
-    + '<p><b>' + r.ad + '</b> firmasının ' + r.yil + ' yılı (yıl başından bugüne) '
-    + 'tedarikçi performans değerlendirmesi aşağıdadır.</p>'
-    + '<table style="border-collapse:collapse;width:100%;font-size:13px;margin:14px 0">'
-    + '<thead><tr style="background:#f5f5f5">'
-    + '<th style="padding:8px 10px;border:1px solid #e0e0e0;text-align:left">Kriter</th>'
-    + '<th style="padding:8px 10px;border:1px solid #e0e0e0;text-align:right">Gerçekleşme</th>'
-    + '<th style="padding:8px 10px;border:1px solid #e0e0e0;text-align:right">Hedef</th>'
-    + '<th style="padding:8px 10px;border:1px solid #e0e0e0">Durum</th>'
-    + '<th style="padding:8px 10px;border:1px solid #e0e0e0;text-align:right">Sonraki Hedef</th>'
-    + '</tr></thead><tbody>'
-    + satir('PPM (Parça Per Million)', r.ppm, r.ppmHedef, r.ppmSonraki, '')
-    + satir('Hata Tekrarı', r.hata, r.hataHedef, r.hataSonraki, ' adet')
+    + '<p><b>' + (r.ad || '') + '</b> firmasının <b>' + (r.yil || '') + ' '
+    + (r.donemAdi || '') + '</b> dönemi tedarikçi performans değerlendirmesi aşağıdadır.</p>'
+    + ayTablo
+    + '<p style="margin:18px 0 6px;font-weight:600">Hedef karşılaştırması</p>'
+    + '<table style="border-collapse:collapse;width:100%;font-size:13px">'
+    + '<thead><tr style="background:#f4f6f8">'
+    + '<th style="' + H + ';text-align:left">Kriter</th>'
+    + '<th style="' + S + '">Gerçekleşme</th><th style="' + S + '">Hedef</th>'
+    + '<th style="' + H + '">Durum</th></tr></thead><tbody>'
+    + hsat('PPM (Parça Per Million)', r.ppm, r.ppmHedef, '')
+    + hsat('Hata Tekrarı', r.hata, r.hataHedef, ' adet')
     + '</tbody></table>'
-    + '<p style="font-size:12px;color:#666">Sonraki hedef kuralı: gerçekleşme hedefin altındaysa '
-    + 'hedef %10 düşürülür; hedef ile hedefin 1,2 katı arasındaysa aynı kalır; '
-    + '1,2 katını aşarsa gerçekleşmenin %90&#39;ı yeni hedef olur.</p>'
     + '<p>Değerlendirme ile ilgili sorularınız için bize dönebilirsiniz.</p>'
     + '<p>İyi çalışmalar,<br><b>Sanifoam Kalite Yönetimi</b></p>'
-    + '<p style="font-size:11px;color:#999;border-top:1px solid #eee;padding-top:8px">'
-    + 'Bu bilgilendirme ' + ceyrek + ' dönemi için gönderilmiştir.</p>'
     + '</div>';
 }
 
