@@ -137,14 +137,19 @@ function _bakimTarihYaz(tarih) {
  * BAKIM_TEKNISYEN tanimliysa yalnizca o kisinin bakimlari alinir — yoksa
  * Ankara'daki teknisyene Cerkezkoy'un bakimlari da giderdi.
  */
-function bakimYaklasanlar(veri, esikGun) {
+function bakimYaklasanlar(veri, esikGun, suzgec) {
   if (!veri || !veri.bakimlar) return [];
-  var kisi = String(_bakimAyar('BAKIM_TEKNISYEN', '')).trim().toLowerCase();
+  suzgec = suzgec || {};
+  // Suzgec verilmezse eski davranis: BAKIM_TEKNISYEN'e bak.
+  var kisi = String(suzgec.teknisyen !== undefined
+      ? suzgec.teknisyen : _bakimAyar('BAKIM_TEKNISYEN', '')).trim().toLowerCase();
+  var yer = String(suzgec.lokasyon || '').trim().toLowerCase();
   var out = [];
   for (var i = 0; i < veri.bakimlar.length; i++) {
     var b = veri.bakimlar[i];
     if (!b.tarih) continue;                       // saat bazli: gun hesabi yok
     if (kisi && String(b.tek || '').trim().toLowerCase() !== kisi) continue;
+    if (yer && String(b.lok || '').trim().toLowerCase() !== yer) continue;
     var g = _bakimGunFarki(b.tarih);
     if (g === null || g > esikGun) continue;
     out.push({ makine: b.makine, tip: b.tip, tarih: b.tarih, tek: b.tek, gun: g });
@@ -185,15 +190,44 @@ function _waTelSade(tel) {
   return d;
 }
 
-function bakimAlicilar() {
+function bakimAlicilar(onek) {
+  onek = onek || 'BAKIM_WA_';
   var out = [];
   for (var i = 1; i <= 5; i++) {
     var ek = (i === 1) ? '' : String(i);
-    var tel = _bakimAyar('BAKIM_WA_TEL' + ek, '');
-    var key = _bakimAyar('BAKIM_WA_KEY' + ek, '');
+    var tel = _bakimAyar(onek + 'TEL' + ek, '');
+    var key = _bakimAyar(onek + 'KEY' + ek, '');
     if (tel && key) out.push({ tel: tel, key: key });
   }
   return out;
+}
+
+// ── Bildirim gruplari ──────────────────────────────────────────────
+// Her grubun kendi suzgeci, alicilari ve GUNLUK DAMGASI var: biri
+// gonderilince digeri engellenmez, biri hata alirsa yalnizca o tekrar
+// denenir. 1. grup eski isimleri kullanir (kurulu sistem bozulmasin).
+function bakimGruplari() {
+  var g = [], ort = parseInt(_bakimAyar('BAKIM_ESIK_GUN', '7'), 10);
+  var a1 = bakimAlicilar('BAKIM_WA_');
+  if (a1.length) {
+    g.push({ ad: 'G1',
+      lokasyon: _bakimAyar('BAKIM_LOKASYON', ''),
+      teknisyen: _bakimAyar('BAKIM_TEKNISYEN', ''),
+      esik: ort, alicilar: a1,
+      damga: 'BAKIM_SON_GONDERIM', sonuc: 'BAKIM_SON_SONUC' });
+  }
+  for (var n = 2; n <= 5; n++) {
+    var onek = 'BAKIM_G' + n + '_';
+    var a = bakimAlicilar(onek);
+    if (!a.length) continue;
+    g.push({ ad: 'G' + n,
+      lokasyon: _bakimAyar(onek + 'LOKASYON', ''),
+      teknisyen: _bakimAyar(onek + 'TEKNISYEN', ''),
+      esik: parseInt(_bakimAyar(onek + 'ESIK', String(ort)), 10),
+      alicilar: a,
+      damga: onek + 'SON_GONDERIM', sonuc: onek + 'SON_SONUC' });
+  }
+  return g;
 }
 
 // ── CallMeBot ile gonderim ─────────────────────────────────────────
@@ -227,64 +261,91 @@ function _bakimBugun() {
     Session.getScriptTimeZone() || 'Europe/Istanbul', 'yyyy-MM-dd');
 }
 
-function _bakimGonderimZamaniMi() {
+function _bakimSaatGeldiMi() {
   var saat = parseInt(_bakimAyar('BAKIM_SAAT', '8'), 10);
   var simdi = parseInt(Utilities.formatDate(new Date(),
     Session.getScriptTimeZone() || 'Europe/Istanbul', 'H'), 10);
-  if (simdi < saat) return false;
-  return _bakimAyar('BAKIM_SON_GONDERIM', '') !== _bakimBugun();
+  return simdi >= saat;
 }
 
-function _bakimDamgala() {
+function _bakimGonderimZamaniMi(damga) {
+  if (!_bakimSaatGeldiMi()) return false;
+  return _bakimAyar(damga || 'BAKIM_SON_GONDERIM', '') !== _bakimBugun();
+}
+
+function _bakimDamgala(damga) {
   PropertiesService.getScriptProperties()
-    .setProperty('BAKIM_SON_GONDERIM', _bakimBugun());
+    .setProperty(damga || 'BAKIM_SON_GONDERIM', _bakimBugun());
 }
 
 /** SAATLIK TETIKLEYICI bunu cagirir. */
 function bakimKontrol() {
-  if (!_bakimGonderimZamaniMi()) return;
+  if (!_bakimSaatGeldiMi()) return;
+  var gruplar = bakimGruplari();
+  if (!gruplar.length) {
+    _bakimSonuc('BAKIM_SON_SONUC',
+      'HATA: alici tanimli degil (BAKIM_WA_TEL / BAKIM_WA_KEY cifti eksik)');
+    Logger.log('alici tanimli degil'); return;
+  }
   var veri = bakimAnlikOku();
   if (!veri) { Logger.log('anlik kopya yok — CMMS bir kez acilmali'); return; }
-  var esik = parseInt(_bakimAyar('BAKIM_ESIK_GUN', '7'), 10);
-  var liste = bakimYaklasanlar(veri, esik);
-  if (!liste.length) { _bakimDamgala(); Logger.log('yaklasan bakim yok'); return; }
 
-  var alicilar = bakimAlicilar();
-  if (!alicilar.length) {
-    PropertiesService.getScriptProperties()
-      .setProperty('BAKIM_SON_SONUC', 'HATA: alici tanimli degil (BAKIM_WA_TEL / BAKIM_WA_KEY)');
-    return;
+  for (var gi = 0; gi < gruplar.length; gi++) {
+    var gr = gruplar[gi];
+    // Her grubun kendi gunluk damgasi: biri gitti diye digeri atlanmaz.
+    if (!_bakimGonderimZamaniMi(gr.damga)) continue;
+
+    var liste = bakimYaklasanlar(veri, gr.esik,
+      { teknisyen: gr.teknisyen, lokasyon: gr.lokasyon });
+    if (!liste.length) {
+      _bakimDamgala(gr.damga);
+      _bakimSonuc(gr.sonuc, 'yaklasan bakim yok');
+      continue;
+    }
+    _bakimGrubaGonder(gr, bakimMetni(liste, gr.lokasyon || veri.lokasyon), liste.length);
   }
-  var metin = bakimMetni(liste, veri.lokasyon);
+}
+
+function _bakimSonuc(ad, metin) {
+  PropertiesService.getScriptProperties().setProperty(ad, metin);
+}
+
+function _bakimGrubaGonder(gr, metin, adet) {
   var basarili = 0, hatalar = [];
-  for (var i = 0; i < alicilar.length; i++) {
-    var son = _waGonder(alicilar[i].tel, metin, alicilar[i].key);
-    Logger.log('WhatsApp ' + alicilar[i].tel + ': ' + JSON.stringify(son));
+  for (var i = 0; i < gr.alicilar.length; i++) {
+    var son = _waGonder(gr.alicilar[i].tel, metin, gr.alicilar[i].key);
+    Logger.log(gr.ad + ' ' + gr.alicilar[i].tel + ': ' + JSON.stringify(son));
     if (son.ok) basarili++;
-    else hatalar.push(alicilar[i].tel.slice(-4) + ': ' + (son.hata || son.kod + ' ' + son.yanit));
+    else hatalar.push(gr.alicilar[i].tel.slice(-4) + ': '
+      + (son.hata || son.kod + ' ' + son.yanit));
   }
   // HEPSI basarisizsa damgalama — bir sonraki saatte yeniden denesin.
-  // En az biri gittiyse damgala; yoksa gidenlere her saat tekrar mesaj gider.
-  if (basarili > 0) _bakimDamgala();
-  PropertiesService.getScriptProperties().setProperty('BAKIM_SON_SONUC',
-    basarili + '/' + alicilar.length + ' aliciya ' + liste.length + ' bakim'
-    + (hatalar.length ? ' — HATA: ' + hatalar.join(' | ') : ''));
+  // En az biri gittiyse damgala; yoksa gidene her saat tekrar mesaj gider.
+  if (basarili > 0) _bakimDamgala(gr.damga);
+  _bakimSonuc(gr.sonuc, basarili + '/' + gr.alicilar.length + ' aliciya '
+    + adet + ' bakim' + (hatalar.length ? ' — HATA: ' + hatalar.join(' | ') : ''));
 }
 
 /** Elle deneme: saat/gunluk kisitlari atlar, damga yazmaz. */
 function bakimTestGonder() {
   var veri = bakimAnlikOku();
   if (!veri) { Logger.log('anlik kopya yok — once CMMS acilmali'); return; }
-  var esik = parseInt(_bakimAyar('BAKIM_ESIK_GUN', '7'), 10);
-  var liste = bakimYaklasanlar(veri, esik);
-  var metin = liste.length ? bakimMetni(liste, veri.lokasyon)
-    : 'Sanifoam Bakim - deneme mesaji. Su an esige giren bakim yok.';
-  Logger.log(metin);
-  var alicilar = bakimAlicilar();
-  if (!alicilar.length) { Logger.log('alici tanimli degil'); return; }
-  for (var i = 0; i < alicilar.length; i++) {
-    Logger.log(alicilar[i].tel + ' >> '
-      + JSON.stringify(_waGonder(alicilar[i].tel, metin, alicilar[i].key)));
+  var gruplar = bakimGruplari();
+  if (!gruplar.length) { Logger.log('alici tanimli degil'); return; }
+  for (var gi = 0; gi < gruplar.length; gi++) {
+    var gr = gruplar[gi];
+    var liste = bakimYaklasanlar(veri, gr.esik,
+      { teknisyen: gr.teknisyen, lokasyon: gr.lokasyon });
+    var metin = liste.length ? bakimMetni(liste, gr.lokasyon || veri.lokasyon)
+      : 'Sanifoam Bakim - deneme mesaji. Su an esige giren bakim yok.'
+        + (gr.lokasyon ? ' (' + gr.lokasyon + ')' : '');
+    Logger.log('--- ' + gr.ad + (gr.lokasyon ? ' / ' + gr.lokasyon : '')
+      + (gr.teknisyen ? ' / ' + gr.teknisyen : '') + ' ---');
+    Logger.log(metin);
+    for (var i = 0; i < gr.alicilar.length; i++) {
+      Logger.log(gr.alicilar[i].tel + ' >> '
+        + JSON.stringify(_waGonder(gr.alicilar[i].tel, metin, gr.alicilar[i].key)));
+    }
   }
 }
 
@@ -296,22 +357,41 @@ function bakimDurumu() {
   for (var i = 0; i < t.length; i++) {
     if (t[i].getHandlerFunction() === 'bakimKontrol') tetik = true;
   }
-  var alicilar = bakimAlicilar();
-  var maske = [];
-  for (var a = 0; a < alicilar.length; a++) {
-    maske.push(alicilar[a].tel.slice(0, 4) + '****' + alicilar[a].tel.slice(-2));
+  var gruplar = bakimGruplari(), gOzet = [], toplamAlici = 0;
+  for (var gi = 0; gi < gruplar.length; gi++) {
+    var gr = gruplar[gi], maske = [];
+    for (var a = 0; a < gr.alicilar.length; a++) {
+      var t2 = gr.alicilar[a].tel.replace(/[^0-9]/g, '');
+      maske.push(t2.slice(0, 4) + '****' + t2.slice(-2));   // anahtar hic verilmez
+    }
+    toplamAlici += gr.alicilar.length;
+    gOzet.push({
+      ad: gr.ad,
+      lokasyon: gr.lokasyon || '(hepsi)',
+      teknisyen: gr.teknisyen || '(hepsi)',
+      esikGun: gr.esik,
+      alicilar: maske.join(', '),
+      yaklasan: veri ? bakimYaklasanlar(veri, gr.esik,
+        { teknisyen: gr.teknisyen, lokasyon: gr.lokasyon }).length : 0,
+      sonGonderim: _bakimAyar(gr.damga, ''),
+      sonSonuc: _bakimAyar(gr.sonuc, '')
+    });
   }
+  var g1 = gOzet.length ? gOzet[0] : null;
   return {
     tetikleyici: tetik,
-    anahtarVar: alicilar.length > 0,
-    aliciSayisi: alicilar.length,
-    telefon: maske.join(', '),
+    anahtarVar: toplamAlici > 0,
+    aliciSayisi: toplamAlici,
+    grupSayisi: gruplar.length,
+    gruplar: gOzet,
+    // Geriye uyum: eski alanlar 1. grubu gosterir
+    telefon: g1 ? g1.alicilar : '',
     esikGun: esik,
     saat: parseInt(_bakimAyar('BAKIM_SAAT', '8'), 10),
     teknisyen: _bakimAyar('BAKIM_TEKNISYEN', ''),
     anlikZaman: veri ? veri.zaman : '',
     bakimSayisi: veri && veri.bakimlar ? veri.bakimlar.length : 0,
-    yaklasan: veri ? bakimYaklasanlar(veri, esik).length : 0,
+    yaklasan: g1 ? g1.yaklasan : 0,
     sonGonderim: _bakimAyar('BAKIM_SON_GONDERIM', ''),
     sonSonuc: _bakimAyar('BAKIM_SON_SONUC', '')
   };
