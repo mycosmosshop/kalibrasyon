@@ -73,6 +73,8 @@ function doPost(e) {
 function doGet(e) {
   var p = (e && e.parameter) || {};
   if (p.action === 'bakimDurum') return _bwCikti(bakimDurumu(), p.callback);
+  // CMMS'teki "Şimdi Gönder" dugmesi
+  if (p.action === 'bakimGonder') return _bwCikti(bakimGonderSimdi(p.zorla === '1'), p.callback);
   return _bwCikti({ ok: true, service: 'bakim-whatsapp' }, p.callback);
 }
 
@@ -302,7 +304,7 @@ function bakimKontrol() {
       _bakimSonuc(gr.sonuc, 'yaklasan bakim yok');
       continue;
     }
-    _bakimGrubaGonder(gr, bakimMetni(liste, gr.lokasyon || veri.lokasyon), liste.length);
+    _bakimGrubaGonder(gr, bakimMetni(liste, gr.lokasyon || veri.lokasyon), liste.length, true);
   }
 }
 
@@ -310,7 +312,7 @@ function _bakimSonuc(ad, metin) {
   PropertiesService.getScriptProperties().setProperty(ad, metin);
 }
 
-function _bakimGrubaGonder(gr, metin, adet) {
+function _bakimGrubaGonder(gr, metin, adet, damgala) {
   var basarili = 0, hatalar = [];
   for (var i = 0; i < gr.alicilar.length; i++) {
     var son = _waGonder(gr.alicilar[i].tel, metin, gr.alicilar[i].key);
@@ -321,9 +323,49 @@ function _bakimGrubaGonder(gr, metin, adet) {
   }
   // HEPSI basarisizsa damgalama — bir sonraki saatte yeniden denesin.
   // En az biri gittiyse damgala; yoksa gidene her saat tekrar mesaj gider.
-  if (basarili > 0) _bakimDamgala(gr.damga);
-  _bakimSonuc(gr.sonuc, basarili + '/' + gr.alicilar.length + ' aliciya '
-    + adet + ' bakim' + (hatalar.length ? ' — HATA: ' + hatalar.join(' | ') : ''));
+  if (damgala !== false && basarili > 0) _bakimDamgala(gr.damga);
+  var ozet = basarili + '/' + gr.alicilar.length + ' aliciya ' + adet + ' bakim'
+    + (hatalar.length ? ' — HATA: ' + hatalar.join(' | ') : '');
+  _bakimSonuc(gr.sonuc, ozet);
+  return { basarili: basarili, toplam: gr.alicilar.length, ozet: ozet };
+}
+
+/**
+ * Istek uzerine gonderim — CMMS'teki "Şimdi Gönder" dugmesi bunu cagirir.
+ * zorla=true: gunluk kapi atlanir ve DAMGA YAZILMAZ, yani elle deneme o
+ * gunun normal hatirlatmasini yutmaz.
+ */
+function bakimGonderSimdi(zorla) {
+  var gruplar = bakimGruplari();
+  if (!gruplar.length) {
+    return { ok: false, mesaj: 'Alıcı tanımlı değil (BAKIM_WA_TEL / BAKIM_WA_KEY)' };
+  }
+  var veri = bakimAnlikOku();
+  if (!veri) {
+    return { ok: false, mesaj: 'Sunucuda bakım listesi yok — önce liste gönderilmeli' };
+  }
+  var satir = [], gonderilen = 0;
+  for (var gi = 0; gi < gruplar.length; gi++) {
+    var gr = gruplar[gi];
+    var etiket = gr.ad + (gr.lokasyon ? ' (' + gr.lokasyon + ')' : '');
+    if (!zorla && !_bakimGonderimZamaniMi(gr.damga)) {
+      satir.push(etiket + ': bugün zaten gönderilmiş');
+      continue;
+    }
+    var liste = bakimYaklasanlar(veri, gr.esik,
+      { teknisyen: gr.teknisyen, lokasyon: gr.lokasyon });
+    if (!liste.length) {
+      if (!zorla) _bakimDamgala(gr.damga);
+      satir.push(etiket + ': eşiğe giren bakım yok');
+      continue;
+    }
+    var son = _bakimGrubaGonder(gr, bakimMetni(liste, gr.lokasyon || veri.lokasyon),
+      liste.length, !zorla);
+    gonderilen += son.basarili;
+    satir.push(etiket + ': ' + son.ozet);
+  }
+  return { ok: gonderilen > 0, gonderilen: gonderilen,
+           zaman: veri.zaman, satirlar: satir };
 }
 
 /** Elle deneme: saat/gunluk kisitlari atlar, damga yazmaz. */
