@@ -12,9 +12,14 @@
  *   - Ucretsiz servis: hiz siniri var (~dakikada 1) ve garantisi yoktur.
  *
  * KURULUM (bir kez):
- *  1) Hasan Bey kendi telefonuna +34 644 51 95 23 numarasini kaydeder.
- *  2) O numaraya WhatsApp'tan sunu yazar:
+ *  1) Alici, CallMeBot'un GUNCEL numarasini kendi telefonuna kaydeder.
+ *     Bugun: +34 684 72 39 62
+ *     (Onceki +34 644 51 95 23 doldu. Bot dolunca CallMeBot yenisini
+ *      bildirir; numara degisir, asagidaki api adresi degismez.)
+ *  2) O numaraya WhatsApp'tan TAM olarak sunu yazar:
  *       I allow callmebot to send me messages
+ *     DIKKAT: "I allow callmebot to CALL me" farkli bir servistir
+ *     (telefonla arama). Onun anahtariyla whatsapp.php calismaz.
  *  3) Gelen cevapta "your apikey is 123456" yazar.
  *  4) Apps Script > Proje Ayarlari > Komut Dosyasi Ozellikleri:
  *       BAKIM_WA_TEL  = +905xxxxxxxxx      (1. alici)
@@ -31,7 +36,8 @@
  *       BAKIM_TEKNISYEN = Hasan Köse       (yalnizca onun bakimlari gitsin)
  *  5) Editorde bakimIzinVer() fonksiyonunu BIR KEZ calistir (izinler icin).
  *  6) Tetikleyiciler > bakimKontrol > Zaman esasli > Saatlik.
- *  7) bakimTestGonder() ile deneme yap.
+ *  7) bakimTestGonder() ile deneme yap. Kayitta CallMeBot'un kendi
+ *     yaniti gorunur — anahtar yanlissa sebebini orada yazar.
  *
  * NOT: Anahtari koda YAZMA — bu depo herkese acik.
  */
@@ -148,8 +154,16 @@ function _waGonder(tel, metin, key) {
   var kod = r.getResponseCode();
   var yanit = String(r.getContentText()).replace(/<[^>]+>/g, ' ')
                 .replace(/\s+/g, ' ').trim().slice(0, 200);
-  // CallMeBot 200 disinda da aciklayici metin dondurur; ikisini de sakla.
-  return { ok: (kod === 200), kod: kod, yanit: yanit };
+  // CallMeBot basarisizken de 200 donup hatayi GOVDEDE yazabiliyor
+  // (yanlis apikey, yanlis servis, bot dolu...). Yalnizca HTTP koduna
+  // bakmak basarisiz gonderimi "gonderildi" sayardi ve hatirlatma
+  // sessizce hic gitmezdi — govde de kontrol edilir.
+  // Kelime siniri sart: /full/ "successfully" icinde eslesir ve BASARILI
+  // gonderimi hata sayardi — o aliciya her saat tekrar mesaj giderdi.
+  // /fail/ de ayni sekilde tehlikeli.
+  var kotu = /(invalid|unauthorized|error|failed|expired|denied)/i.test(yanit)
+          || /not allowed|bot is full|apikey (is )?(invalid|missing|wrong)/i.test(yanit);
+  return { ok: (kod === 200 && !kotu), kod: kod, yanit: yanit };
 }
 
 // ── Gunde bir kez, ayarli saatten sonra ────────────────────────────
