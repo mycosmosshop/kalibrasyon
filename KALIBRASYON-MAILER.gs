@@ -42,8 +42,6 @@ function doGet(e) {
   }
   // Uygulamadaki "Durumu kontrol et" dugmesi buraya sorar.
   if (p.action === 'durum') return _cikti(durumOzeti(), p.callback);
-  // CMMS'teki "Durumu kontrol et" (BAKIM-WHATSAPP.gs)
-  if (p.action === 'bakimDurum') return _cikti(bakimDurumu(), p.callback);
   return _cikti({ ok: true, service: 'kalibrasyon-mailer' }, p.callback);
 }
 
@@ -208,15 +206,6 @@ function doPost(e) {
         zaman: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm')
       });
       return _json({ success: true });
-    }
-
-    // CMMS'ten gelen bakim anlik kopyasi (BAKIM-WHATSAPP.gs)
-    if (body.action === 'bakimAnlik') {
-      bakimAnlikYaz({
-        bakimlar: body.bakimlar || [], lokasyon: body.lokasyon || '',
-        zaman: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm')
-      });
-      return _json({ success: true, adet: (body.bakimlar || []).length });
     }
 
     // Cok sayfali dogrulama defterini sayfa sayfa PDF'e ayir

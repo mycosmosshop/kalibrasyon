@@ -38,6 +38,9 @@
  *       BAKIM_TEKNISYEN = Hasan Köse       (yalnizca onun bakimlari gitsin)
  *  5) Editorde bakimIzinVer() fonksiyonunu BIR KEZ calistir (izinler icin).
  *  6) Tetikleyiciler > bakimKontrol > Zaman esasli > Saatlik.
+ *  6b) Dagit > Yeni dagitim > Web uygulamasi
+ *      Yurutme: Ben  |  Erisim: Herkes
+ *      Cikan .../exec adresini CMMS > menu > Otomatik WhatsApp'a yapistir.
  *  7) bakimTestGonder() ile deneme yap. Kayitta CallMeBot'un kendi
  *     yaniti gorunur — anahtar yanlissa sebebini orada yazar.
  *
@@ -45,6 +48,45 @@
  */
 
 var BAKIM_DOSYA = 'bakim-anlik.json';
+
+// ── Web ucu ────────────────────────────────────────────────────────
+// Bu dosya KENDI projesinde tek basina calisir. Kalibrasyon projesine
+// EKLEMEYIN: orada da doGet/doPost var, cakisirlar.
+function doPost(e) {
+  try {
+    var body = JSON.parse((e && e.postData && e.postData.contents) || '{}');
+    if (body.action === 'bakimAnlik') {
+      bakimAnlikYaz({
+        bakimlar: body.bakimlar || [],
+        lokasyon: body.lokasyon || '',
+        zaman: Utilities.formatDate(new Date(),
+          Session.getScriptTimeZone() || 'Europe/Istanbul', 'yyyy-MM-dd HH:mm')
+      });
+      return _bwJson({ success: true, adet: (body.bakimlar || []).length });
+    }
+    return _bwJson({ success: false, hata: 'bilinmeyen istek' });
+  } catch (err) {
+    return _bwJson({ success: false, hata: String(err) });
+  }
+}
+
+function doGet(e) {
+  var p = (e && e.parameter) || {};
+  if (p.action === 'bakimDurum') return _bwCikti(bakimDurumu(), p.callback);
+  return _bwCikti({ ok: true, service: 'bakim-whatsapp' }, p.callback);
+}
+
+function _bwJson(o) {
+  return ContentService.createTextOutput(JSON.stringify(o))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+// JSONP: Apps Script CORS'a kapali, tarayici <script> ile okuyor.
+function _bwCikti(o, cb) {
+  if (!cb) return _bwJson(o);
+  return ContentService.createTextOutput(cb + '(' + JSON.stringify(o) + ');')
+    .setMimeType(ContentService.MimeType.JAVASCRIPT);
+}
 
 /** Izinleri bir kerede almak icin: editorde bunu calistir. */
 function bakimIzinVer() {
