@@ -1,17 +1,17 @@
-/***** ÇEYREKLİK TEDARİKÇİ PERFORMANS MAİLİ (Google Apps Script) *****
+/***** TEDARİKÇİ PERFORMANS MAİLİ (Google Apps Script) *****
  * Senin KURUMSAL (Sanifoam) adresinden gönderir. Apps Script SMTP
  * konuşamaz; Gmail'in "Farklı gönder" (alias) özelliği kullanılır —
  * bkz. GONDEREN_ADRES bölümü. Alias hazır değilse HİÇBİR mail gitmez.
  *
  * AKIŞ — onaysız hiçbir mail dışarı çıkmaz:
- *   1) Çeyrek başında (1 Ocak / 1 Nisan / 1 Temmuz / 1 Ekim) saatlik
- *      tetikleyici SANA hatırlatma atar: "Q3 geldi, ERP'den onayla".
- *   2) ERP'de "📧 Çeyreklik Performans Bildirimi → Listeyi hazırla ve
- *      onayla" dersin. Liste Drive'a PERFORMANS_KUYRUK.json olarak yazılır
- *      (durum: 'onaylandi').
- *   3) Bir sonraki saatlik çalışmada bu betik kuyruğu görür, mailleri
- *      GÖNDERİR, her birini "gonderildi" işaretler ve sana gönderim
- *      raporu atar.
+ *   1) ERP'de "📧 Performans Bildirimi → Listeyi hazırla ve onayla"
+ *      dersin ve GÖNDERİM TARİHİNİ sen seçersin. Liste Drive'a
+ *      PERFORMANS_KUYRUK.json olarak yazılır (durum: 'onaylandi').
+ *   2) Saatlik tetikleyici kuyruğa bakar. Seçtiğin tarih gelmediyse
+ *      BEKLER; geldiğinde mailleri GÖNDERİR, her birini "gonderildi"
+ *      işaretler ve sana gönderim raporu atar.
+ *
+ * Takvim çeyreği dayatması yoktur: tarihi kullanıcı belirler.
  *
  * Tedarikçi verisi Supabase'de değil Drive'da durur (kural: Supabase
  * şişirilmeyecek). Bu yüzden hesabı ERP yapar, bu betik yalnızca hazır
@@ -31,9 +31,9 @@ var PERF_KLASOR  = '';   // bos = Drive kokunde ara; Drive betigindeki klasor ID
 // ── Kurulum: saatlik tetikleyici ───────────────────────────────────
 function kurulum() {
   ScriptApp.getProjectTriggers().forEach(function (t) {
-    if (t.getHandlerFunction() === 'ceyrekKontrol') ScriptApp.deleteTrigger(t);
+    if (t.getHandlerFunction() === 'gonderimKontrol') ScriptApp.deleteTrigger(t);
   });
-  ScriptApp.newTrigger('ceyrekKontrol').timeBased().everyHours(1).create();
+  ScriptApp.newTrigger('gonderimKontrol').timeBased().everyHours(1).create();
   Logger.log('Saatlik tetikleyici kuruldu.');
 }
 
@@ -88,15 +88,10 @@ function _gonderenDogrula() {
   return { ok: true, from: istenen, adres: istenen };
 }
 
-function _ceyrek(d) {
-  d = d || new Date();
-  return d.getFullYear() + '-Q' + (Math.floor(d.getMonth() / 3) + 1);
-}
-
-// Ceyregin ILK gunu mu? Hatirlatma yalnizca o gun atilir.
-function _ceyrekBasi(d) {
-  d = d || new Date();
-  return d.getDate() === 1 && (d.getMonth() % 3) === 0;
+// Bugunun YEREL takvim gunu, YYYY-AA-GG. toISOString UTC'ye cevirir ve
+// gece yarisi civari bir onceki gunu verir; erken gonderim olmasin.
+function _bugunStr() {
+  return Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
 }
 
 function _dosyaBul() {
@@ -173,32 +168,18 @@ function _govde(r, ceyrek) {
 }
 
 // ── Saatlik tetikleyici ────────────────────────────────────────────
-function ceyrekKontrol() {
+function gonderimKontrol() {
   var k = _kuyrukOku();
-  var simdiCeyrek = _ceyrek();
+  if (!k) return;
+  if (k.durum !== 'onaylandi') return;
+  if (!(k.kayitlar || []).some(function (r) { return !r.gonderildi; })) return;
 
-  // 1) Onayli ve gonderilmemis kayit varsa GONDER
-  if (k && k.durum === 'onaylandi' && (k.kayitlar || []).some(function (r) { return !r.gonderildi; })) {
-    gonder(k);
-    return;
-  }
+  // Kullanicinin sectigi GONDERIM TARIHI gelmediyse bekle. Takvim
+  // ceyregi dayatmasi kaldirildi: tarihi kullanici belirler.
+  var gt = String(k.gonderimTarihi || '');
+  if (gt && gt > _bugunStr()) return;
 
-  // 2) Ceyrek basiysa ve bu ceyrek icin onay yoksa HATIRLAT (gunde bir kez)
-  if (_ceyrekBasi() && (!k || k.ceyrek !== simdiCeyrek || k.durum !== 'onaylandi')) {
-    if (_damga('hatirlatma') === simdiCeyrek) return;   // bu ceyrek zaten hatirlatildi
-    GmailApp.sendEmail(_benimAdresim(),
-      '[ERP] ' + simdiCeyrek + " tedarikçi performans bildirimi onay bekliyor",
-      '',
-      { htmlBody:
-          '<div style="font-family:Segoe UI,Arial,sans-serif;font-size:14px">'
-        + '<p><b>' + simdiCeyrek + '</b> dönemi geldi. Ankara ve Çerkezköy tedarikçilerine '
-        + 'performans maili gönderilmesi için onayın bekleniyor.</p>'
-        + '<p>ERP → Onaylı Tedarikçiler → <b>📧 Çeyreklik Performans Bildirimi → '
-        + 'Listeyi hazırla ve onayla</b></p>'
-        + '<p style="color:#666;font-size:12px">Onaylamazsan hiçbir mail gitmez. '
-        + 'Bu hatırlatma çeyrek başına bir kez gönderilir.</p></div>' });
-    _damgala('hatirlatma', simdiCeyrek);
-  }
+  gonder(k);
 }
 
 // ── Gonderim ───────────────────────────────────────────────────────
@@ -223,7 +204,7 @@ function gonder(k) {
     if (r.gonderildi) return;
     try {
       GmailApp.sendEmail(r.to,
-        'Tedarikçi Performans Değerlendirmesi — ' + r.yil + ' (' + k.ceyrek + ')',
+        'Tedarikçi Performans Değerlendirmesi — ' + k.ceyrek,
         '',
         {
           htmlBody: _govde(r, k.ceyrek),
