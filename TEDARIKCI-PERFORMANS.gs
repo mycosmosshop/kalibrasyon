@@ -236,7 +236,9 @@ function gonder(k) {
         'Tedarikçi Performans Değerlendirmesi — ' + k.ceyrek,
         '',
         {
-          htmlBody: _govde(r, k.ceyrek),
+          // Govde ERP'de rapor bicimiyle uretilip kuyruga yazilir
+          // (veri orada). Yoksa eski sade govdeye duseriz.
+          htmlBody: r.govde || _govde(r, k.ceyrek),
           cc: (r.cc || []).join(','),
           bcc: ben,                       // arsiv/kanit kopyasi
           name: 'Sanifoam Kalite Yönetimi',
