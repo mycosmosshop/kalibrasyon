@@ -233,7 +233,7 @@ function gonder(k) {
     if (r.gonderildi) return;
     try {
       GmailApp.sendEmail(r.to,
-        'Tedarikçi Performans Değerlendirmesi — ' + k.ceyrek,
+        'Tedarikçi Performans Değerlendirmesi / Supplier Performance Evaluation — ' + k.ceyrek,
         '',
         {
           // Govde ERP'de rapor bicimiyle uretilip kuyruga yazilir
