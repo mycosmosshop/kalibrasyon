@@ -4637,6 +4637,24 @@ const CalibrationForm = ({ isOpen, onClose, onSave, onUpdateRecord, instrumentId
 const KALIB_SURUM = '2026-09-21 · serit metre icaktarma v2';
 try { console.log('[kalibrasyon] surum: ' + KALIB_SURUM); } catch (_) {}
 
+// Sunucudaki surum ile calisan surumu karsilastirir.
+// GitHub Pages HTML'i 10 dakika onbellege aliyor; duzeltme yayinlansa
+// bile tarayici ESKI kopyayi calistirabiliyor ve kullanici bunu ancak
+// veri bozulduktan sonra fark ediyor. Ice aktarma VERI YAZAN islem
+// oldugu icin once surum dogrulanir.
+async function surumDenetle() {
+    try {
+        const yol = location.pathname.replace(/[^/]*$/, '') + 'index.html';
+        const r = await fetch(yol + '?_sv=' + Date.now(), { cache: 'no-store' });
+        if (!r.ok) return { taze: true };
+        const m = (await r.text()).match(/const KALIB_SURUM = '([^']+)'/);
+        if (!m) return { taze: true };            // damga yok: karisma
+        return { taze: m[1] === KALIB_SURUM, sunucu: m[1], calisan: KALIB_SURUM };
+    } catch (_) {
+        return { taze: true };                    // ag yoksa engelleme
+    }
+}
+
 // === Serit metre (FR72) ayristirici ===
 // Onceki surum sayfayi ADIYLA ariyordu: /sayfa2/i yoksa SON sayfa
 // aliniyordu. Kullanicinin dosyasinda sayfalar "SERITMETRE" ve "ETIKET";
@@ -4746,6 +4764,7 @@ const DataImportModal = ({ isOpen, onClose, onImport, instruments }) => {
     const [mode, setMode] = useState('standard');
     const [smOzet, setSmOzet] = useState(null);
     const [smKonum, setSmKonum] = useState('');
+    const [surumUyari, setSurumUyari] = useState(null);
     const fileInputRef = useRef(null);
     const fileInputRefSM = useRef(null);
     // Konum listesi MEVCUT cihazlardan: serit metrelerin konumu kaynak
@@ -4753,6 +4772,16 @@ const DataImportModal = ({ isOpen, onClose, onImport, instruments }) => {
     // "SETLEME PERSONELI" konumuna dusuyordu.
     const konumlar = Array.from(new Set((instruments || [])
         .map(i => String(i.location || '').trim()).filter(Boolean))).sort();
+
+    // Modal her acildiginda: calisan kod guncel mi?
+    useEffect(() => {
+        if (!isOpen) { setSurumUyari(null); return; }
+        let iptal = false;
+        surumDenetle().then(s => {
+            if (!iptal && !s.taze) setSurumUyari(s);
+        });
+        return () => { iptal = true; };
+    }, [isOpen]);
 
     const handleFileChange = (e) => {
         const secilen = (e.target.files && e.target.files.length > 0)
@@ -4780,6 +4809,10 @@ const DataImportModal = ({ isOpen, onClose, onImport, instruments }) => {
     const handleModeChange = (newMode) => { setMode(newMode); resetState(); };
 
     const handleImport = () => {
+        if (surumUyari) {
+            setError('Eski sürüm çalışıyor; önce sayfayı yenileyin.');
+            return;
+        }
         if (!file) {
             setError('Lütfen bir Excel dosyası seçin.');
             return;
@@ -4843,6 +4876,10 @@ const DataImportModal = ({ isOpen, onClose, onImport, instruments }) => {
     };
 
     const handleSMImport = () => {
+        if (surumUyari) {
+            setError('Eski sürüm çalışıyor; önce sayfayı yenileyin.');
+            return;
+        }
         if (!smOzet) { setError('Önce dosyayı seçin.'); return; }
         if (!smKonum.trim()) { setError('Şerit metrelerin konumunu seçin.'); return; }
         setIsLoading(true);
@@ -4906,6 +4943,21 @@ const DataImportModal = ({ isOpen, onClose, onImport, instruments }) => {
     return (
         e(Modal, { isOpen: isOpen, onClose: handleClose, title: "Veri İçe Aktar (Cihaz + Kayıt)" },
             e("div", { className: "space-y-4" },
+                surumUyari && e("div", { className: "rounded-lg bg-red-50 dark:bg-red-900/30 border border-red-300 dark:border-red-700 p-3 text-sm text-red-800 dark:text-red-200 space-y-2" },
+                    e("p", { className: "font-semibold" },
+                        "Tarayıcınız uygulamanın eski kopyasını çalıştırıyor."),
+                    e("p", null,
+                        "Çalışan sürüm: ", e("span", { className: "font-mono" }, surumUyari.calisan),
+                        " · Yayındaki sürüm: ", e("span", { className: "font-mono" }, surumUyari.sunucu)),
+                    e("p", null,
+                        "İçe aktarma veri yazan bir işlem. Eski kopyayla yapılırsa " +
+                        "düzeltilmiş kontroller çalışmaz. Önce sayfayı yenileyin."),
+                    e("button", {
+                        type: "button",
+                        onClick: () => location.reload(true),
+                        className: "px-4 py-2 rounded-md text-white bg-red-600 hover:bg-red-700 font-semibold"
+                    }, "Sayfayı yenile ve güncel sürüme geç")
+                ),
                 e("div", { className: "flex gap-1 border-b border-slate-200 dark:border-slate-700 -mx-1" },
                     e("button", { type: "button", onClick: () => handleModeChange('standard'), className: tabCls('standard') }, "Standart Excel"),
                     e("button", { type: "button", onClick: () => handleModeChange('sritMetre'), className: tabCls('sritMetre') }, "Şerit Metre Listesi")
