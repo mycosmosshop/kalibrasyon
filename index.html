@@ -4658,7 +4658,7 @@ const CalibrationForm = ({ isOpen, onClose, onSave, onUpdateRecord, instrumentId
 
 // Surum damgasi: tarayici ESKI kopyayi calistiriyorsa konsolda eski
 // tarih gorunur. "Deploy oldu mu" sorusu boylece tek bakista cevaplanir.
-const KALIB_SURUM = '2026-09-21 · serit metre icaktarma v3';
+const KALIB_SURUM = '2026-09-21 · serit metre icaktarma v4';
 try { console.log('[kalibrasyon] surum: ' + KALIB_SURUM); } catch (_) {}
 
 // Sunucudaki surum ile calisan surumu karsilastirir.
@@ -4788,6 +4788,12 @@ const DataImportModal = ({ isOpen, onClose, onImport, instruments }) => {
     const [mode, setMode] = useState('standard');
     const [smOzet, setSmOzet] = useState(null);
     const [smKonum, setSmKonum] = useState('');
+    // Zimmet listesinde DOGRULAYAN ve olcum araligi yok; ikisi de
+    // buradan girilir. Onceden teknisyen alanina zimmet sahibi
+    // yaziliyordu (cihazi kullanan kisi, dogrulamayi yapan degil) ve
+    // olcum araligi '0-5000 mm' sabitiydi.
+    const [smTeknisyen, setSmTeknisyen] = useState('');
+    const [smAralik, setSmAralik] = useState('0-3000 mm');
     const [surumUyari, setSurumUyari] = useState(null);
     const fileInputRef = useRef(null);
     const fileInputRefSM = useRef(null);
@@ -4924,10 +4930,15 @@ const DataImportModal = ({ isOpen, onClose, onImport, instruments }) => {
                 const tarih = gg(s.dogrulama);
                 rows.push([
                     id, 'Şerit Metre', id, '', smKonum.trim(), s.bolum,
-                    s.ay || 6, 1, 'mm', '0-5000 mm', '1 mm',
+                    s.ay || 6, 1, 'mm', smAralik.trim() || '0-3000 mm',
+                    '1 mm',
                     'FR72 Şerit Metre Zimmet Takip Listesi',
-                    tarih, 'Doğrulama', tarih, s.sorumlu, '', '',
-                    '', '', s.durum, s.sorumlu, ''
+                    tarih, 'Doğrulama', tarih,
+                    smTeknisyen.trim(),          // doğrulamayı YAPAN
+                    '', '',
+                    '', '', s.durum,
+                    s.sorumlu,                   // cihazı KULLANAN
+                    ''
                 ]);
             });
             // kaynak bilgisi: mevcut SERIT METRE OLMAYAN cihazlar
@@ -5065,6 +5076,32 @@ const DataImportModal = ({ isOpen, onClose, onImport, instruments }) => {
                                 konumlar.map(k => e("option", { key: k, value: k }))),
                             e("p", { className: "text-xs text-slate-500 dark:text-slate-400 mt-1" },
                                 "Zimmet listesinde konum sütunu yok; cihazların bulunduğu tesisi seçin.")
+                        ),
+                        e("div", { className: "grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1" },
+                            e("div", null,
+                                e("label", { className: "block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1" },
+                                    "Doğrulamayı yapan"),
+                                e("input", {
+                                    value: smTeknisyen,
+                                    onChange: (ev) => setSmTeknisyen(ev.target.value),
+                                    placeholder: "ör. Emre Biçer",
+                                    className: "w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-md bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
+                                }),
+                                e("p", { className: "text-xs text-slate-500 dark:text-slate-400 mt-1" },
+                                    "Teknisyen alanına yazılır. Zimmetli personel ayrı sütunda kalır.")
+                            ),
+                            e("div", null,
+                                e("label", { className: "block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1" },
+                                    "Ölçüm aralığı"),
+                                e("input", {
+                                    value: smAralik,
+                                    onChange: (ev) => setSmAralik(ev.target.value),
+                                    placeholder: "ör. 0-3000 mm",
+                                    className: "w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-md bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
+                                }),
+                                e("p", { className: "text-xs text-slate-500 dark:text-slate-400 mt-1" },
+                                    "Doğrulama raporundaki aralık.")
+                            )
                         )
                     )
                 ),
@@ -5460,7 +5497,10 @@ const BulkInstrumentEditModal = ({ isOpen, onClose, onSave, instrumentCount, set
         location: '',
         department: '',
         calibrationInterval: '',
-        permissibleDeviation: ''
+        permissibleDeviation: '',
+        measurementRange: '',
+        resolution: '',
+        unit: ''
     });
 
     useEffect(() => {
@@ -5482,6 +5522,11 @@ const BulkInstrumentEditModal = ({ isOpen, onClose, onSave, instrumentCount, set
         if (formData.department) updates.department = formData.department;
         if (formData.calibrationInterval) updates.calibrationInterval = parseInt(formData.calibrationInterval, 10);
         if (formData.permissibleDeviation !== '') updates.permissibleDeviation = parseFloat(formData.permissibleDeviation);
+        // Olcum araligi ve cozunurluk toplu duzenlemede YOKTU; yanlis
+        // aktarilan bir seri cihazi tek tek duzeltmek gerekiyordu.
+        if (formData.measurementRange) updates.measurementRange = formData.measurementRange;
+        if (formData.resolution) updates.resolution = formData.resolution;
+        if (formData.unit) updates.unit = formData.unit;
 
         if (Object.keys(updates).length > 0) {
             onSave(updates);
@@ -5504,6 +5549,15 @@ const BulkInstrumentEditModal = ({ isOpen, onClose, onSave, instrumentCount, set
             }),
             e(FormInput, {
                 label: "Yeni İzin Verilen Sapma", name: "permissibleDeviation", type: "number", step: "any", value: formData.permissibleDeviation, onChange: handleChange, placeholder: "Değiştirme"
+            }),
+            e(FormInput, {
+                label: "Yeni Ölçüm Aralığı", name: "measurementRange", value: formData.measurementRange, onChange: handleChange, placeholder: "Değiştirme (ör. 0-3000 mm)"
+            }),
+            e(FormInput, {
+                label: "Yeni Çözünürlük", name: "resolution", value: formData.resolution, onChange: handleChange, placeholder: "Değiştirme (ör. 1 mm)"
+            }),
+            e(FormInput, {
+                label: "Yeni Birim", name: "unit", value: formData.unit, onChange: handleChange, placeholder: "Değiştirme (ör. mm)"
             }),
             e("div", { className: "flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-700" },
                 e("button", { onClick: onClose, className: "px-4 py-2 rounded-md" }, "İptal"),
