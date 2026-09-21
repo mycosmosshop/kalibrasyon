@@ -1367,6 +1367,14 @@ return instruments.map(instrument => {
         // mevcut cihazlarla eslesip onlari guncelliyordu.
         const yalnizSM = !!(secenek && secenek.kaynak === 'seritmetre');
         const korunanCihazlar = [];
+        // Ayni cihaza ayni tarihte ayni tipte kayit BIR KEZ girer.
+        // Liste ikinci kez yuklenince kayitlar ikiye katlaniyordu:
+        // 21 serit metre 3 aktarimda 63 dogrulama kaydi uretmisti.
+        const kayitIzi = (cihazId, tarih, tip) =>
+            String(cihazId) + '|' + String(tarih) + '|' + String(tip || '');
+        const mevcutIzler = new Set((calibrationRecords || []).map(
+            r => kayitIzi(r.instrumentId, r.date, r.recordType || r.type)));
+        let atlananKayit = 0;
         const parseDateToISO = (dateInput) => {
             if (!dateInput || (typeof dateInput === 'string' && dateInput.toLowerCase() === 'gg.aa.yyyy')) return null;
             if (dateInput instanceof Date) {
@@ -1595,7 +1603,18 @@ return instruments.map(instrument => {
                     const refInst = allPossibleInstruments.find(i => i.serialNumber === rowData.referenceInstrumentSerial);
                     if (refInst) newRecord.referenceInstrumentId = refInst.id;
                 }
-                newRecords.push(newRecord);
+                // MEVCUT cihazin ayni tarihli ayni tip kaydi varsa tekrar
+                // eklenmez. Yeni cihazlarda gecici kimlik kullanildigi icin
+                // iz seri numarasi uzerinden kurulur.
+                const izAnahtari = existingInstrument
+                    ? kayitIzi(instrumentToProcess.id, newRecord.date, newRecord.recordType)
+                    : kayitIzi('YENI::' + serial, newRecord.date, newRecord.recordType);
+                if (mevcutIzler.has(izAnahtari)) {
+                    atlananKayit++;
+                } else {
+                    mevcutIzler.add(izAnahtari);
+                    newRecords.push(newRecord);
+                }
             }
         });
         
@@ -1666,7 +1685,12 @@ return instruments.map(instrument => {
             + ' · guncellenen: ' + updatedInstrumentCount
             + ' · yeni kayit: ' + newRecords.length
             + ' · korunan: ' + korunanCihazlar.length
+            + ' · mukerrer atlanan kayit: ' + atlananKayit
             + ' · toplam cihaz: ' + finalInstruments.length);
+        if (atlananKayit) {
+            toastService.info(atlananKayit + ' kayıt zaten vardı, '
+                + 'tekrar eklenmedi (aynı cihaz, aynı tarih, aynı tip).');
+        }
         if (korunanCihazlar.length) {
             console.warn('[ice aktarma] serit metre olmadigi icin '
                 + 'DOKUNULMAYAN cihazlar: ' + korunanCihazlar.join(' | '));
@@ -4634,7 +4658,7 @@ const CalibrationForm = ({ isOpen, onClose, onSave, onUpdateRecord, instrumentId
 
 // Surum damgasi: tarayici ESKI kopyayi calistiriyorsa konsolda eski
 // tarih gorunur. "Deploy oldu mu" sorusu boylece tek bakista cevaplanir.
-const KALIB_SURUM = '2026-09-21 · serit metre icaktarma v2';
+const KALIB_SURUM = '2026-09-21 · serit metre icaktarma v3';
 try { console.log('[kalibrasyon] surum: ' + KALIB_SURUM); } catch (_) {}
 
 // Sunucudaki surum ile calisan surumu karsilastirir.
