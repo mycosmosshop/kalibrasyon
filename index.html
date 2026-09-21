@@ -1662,7 +1662,7 @@ return instruments.map(instrument => {
         const newInstrumentCount = newInstrumentsWithFinalIds.length;
         const updatedInstrumentCount = updatedInstrumentsMap.size;
 
-        console.log('[ice aktarma] SONUC — yeni cihaz: ' + newInstrumentCount
+        console.log('[ice aktarma][' + KALIB_SURUM + '] SONUC — yeni cihaz: ' + newInstrumentCount
             + ' · guncellenen: ' + updatedInstrumentCount
             + ' · yeni kayit: ' + newRecords.length
             + ' · korunan: ' + korunanCihazlar.length
@@ -4631,6 +4631,11 @@ const CalibrationForm = ({ isOpen, onClose, onSave, onUpdateRecord, instrumentId
         )
     );
 };
+
+// Surum damgasi: tarayici ESKI kopyayi calistiriyorsa konsolda eski
+// tarih gorunur. "Deploy oldu mu" sorusu boylece tek bakista cevaplanir.
+const KALIB_SURUM = '2026-09-21 · serit metre icaktarma v2';
+try { console.log('[kalibrasyon] surum: ' + KALIB_SURUM); } catch (_) {}
 
 // === Serit metre (FR72) ayristirici ===
 // Onceki surum sayfayi ADIYLA ariyordu: /sayfa2/i yoksa SON sayfa
