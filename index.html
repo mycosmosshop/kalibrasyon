@@ -1360,7 +1360,13 @@ return instruments.map(instrument => {
         setCurrentView('instruments');
     };
 
-    const handleUnifiedImport = (data, sayfaAdi) => {
+    const handleUnifiedImport = (data, sayfaAdi, secenek) => {
+        // `secenek.kaynak === 'seritmetre'` ise bu icerik FR72 zimmet
+        // listesinden geliyor ve YALNIZ serit metrelere dokunmali.
+        // Yanlis sayfa okundugunda uretilen SM-2026 gibi kimlikler
+        // mevcut cihazlarla eslesip onlari guncelliyordu.
+        const yalnizSM = !!(secenek && secenek.kaynak === 'seritmetre');
+        const korunanCihazlar = [];
         const parseDateToISO = (dateInput) => {
             if (!dateInput || (typeof dateInput === 'string' && dateInput.toLowerCase() === 'gg.aa.yyyy')) return null;
             if (dateInput instanceof Date) {
@@ -1531,6 +1537,18 @@ return instruments.map(instrument => {
                 Object.entries(restOfRowData).filter(([_, v]) => v !== undefined && v !== null && String(v).trim() !== '')
             );
 
+            if (existingInstrument && yalnizSM) {
+                // Ayni kimligi tasiyan cihaz SERIT METRE degilse dokunma.
+                const mevcutAd = _katla(existingInstrument.name);
+                if (mevcutAd.indexOf('SERITMETRE') < 0
+                        && mevcutAd.indexOf('SERIT') < 0) {
+                    korunanCihazlar.push(
+                        (existingInstrument.id || '?') + ' · '
+                        + (existingInstrument.name || ''));
+                    return;
+                }
+            }
+
             if (existingInstrument) {
                 instrumentToProcess = { ...existingInstrument, ...instrumentDataFromRow };
                 updatedInstrumentsMap.set(serial, instrumentToProcess);
@@ -1647,7 +1665,17 @@ return instruments.map(instrument => {
         console.log('[ice aktarma] SONUC — yeni cihaz: ' + newInstrumentCount
             + ' · guncellenen: ' + updatedInstrumentCount
             + ' · yeni kayit: ' + newRecords.length
+            + ' · korunan: ' + korunanCihazlar.length
             + ' · toplam cihaz: ' + finalInstruments.length);
+        if (korunanCihazlar.length) {
+            console.warn('[ice aktarma] serit metre olmadigi icin '
+                + 'DOKUNULMAYAN cihazlar: ' + korunanCihazlar.join(' | '));
+            toastService.warning(korunanCihazlar.length
+                + ' satır atlandı: aynı kimlikte şerit metre olmayan '
+                + 'cihaz var, o cihaza dokunulmadı ve yeni kayıt '
+                + 'eklenmedi — ' + korunanCihazlar.slice(0, 3).join(', ')
+                + (korunanCihazlar.length > 3 ? ' …' : ''));
+        }
         setInstruments(finalInstruments);
         setCalibrationRecords(allRecords);
     
@@ -2229,7 +2257,8 @@ return instruments.map(instrument => {
             e(DataImportModal, {
                 isOpen: isDataImportOpen,
                 onClose: () => setDataImportOpen(false),
-                onImport: handleUnifiedImport
+                onImport: handleUnifiedImport,
+                instruments: instruments
             }),
             e(ExportModal, {
                 isOpen: isExportOpen,
@@ -4603,27 +4632,137 @@ const CalibrationForm = ({ isOpen, onClose, onSave, onUpdateRecord, instrumentId
     );
 };
 
-const DataImportModal = ({ isOpen, onClose, onImport }) => {
+// === Serit metre (FR72) ayristirici ===
+// Onceki surum sayfayi ADIYLA ariyordu: /sayfa2/i yoksa SON sayfa
+// aliniyordu. Kullanicinin dosyasinda sayfalar "SERITMETRE" ve "ETIKET";
+// son sayfa ETIKET oldugu icin zimmet listesi yerine etiket sablonu
+// okundu, "AY 1 2 3" satirlarindan cihaz uretildi ve MEVCUT cihazlar
+// bu copla guncellendi. Sayfa ve sutunlar artik BASLIK SATIRINDAN
+// bulunuyor, bulunamazsa hata veriliyor — tahmin yok.
+const SM_SUTUN = [
+    ['no', ['CIHAZNO']],
+    ['sorumlu', ['CIHAZSORUMLUSU', 'SORUMLU', 'ZIMMET']],
+    ['durum', ['KULLANIMDURUMU', 'DURUM']],
+    ['bolum', ['BOLUM', 'DEPARTMAN']],
+    ['dogrulama', ['DOGRULAMATARIHI']],
+    ['sonraki', ['SONRAKIDOGRULAMATARIHI', 'SONRAKIDOGRULAMA']],
+];
+
+function _smTarih(x) {
+    if (x == null || String(x).trim() === '') return null;
+    if (x instanceof Date) return isNaN(x.getTime()) ? null : x;
+    const s = String(x).trim();
+    let m = s.match(/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})$/);
+    if (m) return new Date(+m[3], +m[2] - 1, +m[1]);
+    m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (m) return new Date(+m[1], +m[2] - 1, +m[3]);
+    return null;                       // "5" gibi tek sayi TARIH DEGIL
+}
+
+function _smAy(ilk, son) {
+    if (!ilk || !son) return null;
+    const ay = Math.round((son - ilk) / (1000 * 60 * 60 * 24 * 30.44));
+    return (ay >= 1 && ay <= 120) ? ay : null;
+}
+
+// Doner: {sayfa, satirlar:[...], atlanan:[{satir, sebep}], hata}
+function smAyristir(wb) {
+    let bulunan = null;
+    for (const ad of wb.SheetNames) {
+        const raw = XLSX.utils.sheet_to_json(wb.Sheets[ad],
+            { header: 1, raw: false, dateNF: 'yyyy-mm-dd' });
+        for (let i = 0; i < Math.min(raw.length, 12); i++) {
+            // Array.from: sheet_to_json SEYREK dizi dondurur, .map
+            // deliklerin uzerinden atlar ve undefined birakir.
+            const k = Array.from(raw[i] || [], c => _katla(c));
+            const noIdx = k.findIndex(x => x.startsWith('CIHAZNO'));
+            const dogIdx = k.findIndex(x => x.includes('DOGRULAMATARIHI'));
+            if (noIdx >= 0 && dogIdx >= 0) {
+                bulunan = { ad, raw, basIdx: i, basliklar: k };
+                break;
+            }
+        }
+        if (bulunan) break;
+    }
+    if (!bulunan) {
+        return { hata: 'Zimmet listesi bulunamadı: hiçbir sayfada ' +
+            '"CİHAZ NO" ve "DOĞRULAMA TARİHİ" başlıkları yan yana yok. ' +
+            'FR72 formundaki liste sayfasını içeren dosyayı seçin.' };
+    }
+    const idx = {};
+    SM_SUTUN.forEach(([alan, adaylar]) => {
+        idx[alan] = bulunan.basliklar.findIndex(
+            b => adaylar.some(a => b.startsWith(a)));
+    });
+    if (idx.no < 0 || idx.dogrulama < 0) {
+        return { hata: 'Başlık satırı okundu ama "CİHAZ NO" veya ' +
+            '"DOĞRULAMA TARİHİ" sütunu bulunamadı.' };
+    }
+    const al = (r, alan) => (idx[alan] >= 0 ? r[idx[alan]] : '');
+    const satirlar = [], atlanan = [], gorulen = new Set();
+    bulunan.raw.slice(bulunan.basIdx + 1).forEach((r, i) => {
+        const satirNo = bulunan.basIdx + 2 + i;
+        if (!r || r.every(c => c == null || String(c).trim() === '')) return;
+        const ham = String(al(r, 'no') == null ? '' : al(r, 'no')).trim();
+        if (!/^\d{1,3}$/.test(ham)) {
+            if (ham) atlanan.push({ satir: satirNo,
+                sebep: 'cihaz no sayı değil: "' + ham + '"' });
+            return;
+        }
+        const no = parseInt(ham, 10);
+        if (no < 1) { atlanan.push({ satir: satirNo, sebep: 'cihaz no 0' }); return; }
+        if (gorulen.has(no)) {
+            atlanan.push({ satir: satirNo, sebep: 'cihaz no tekrar ediyor: ' + no });
+            return;
+        }
+        const dog = _smTarih(al(r, 'dogrulama'));
+        if (!dog) {
+            atlanan.push({ satir: satirNo, sebep: 'doğrulama tarihi okunamadı: "'
+                + String(al(r, 'dogrulama') || '') + '"' });
+            return;
+        }
+        gorulen.add(no);
+        satirlar.push({
+            no: no,
+            sorumlu: String(al(r, 'sorumlu') || '').trim(),
+            durum: String(al(r, 'durum') || '').trim(),
+            bolum: String(al(r, 'bolum') || '').trim(),
+            dogrulama: dog,
+            ay: _smAy(dog, _smTarih(al(r, 'sonraki'))),
+        });
+    });
+    return { sayfa: bulunan.ad, satirlar, atlanan };
+}
+
+const DataImportModal = ({ isOpen, onClose, onImport, instruments }) => {
     const [file, setFile] = useState(null);
     const [error, setError] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [mode, setMode] = useState('standard');
+    const [smOzet, setSmOzet] = useState(null);
+    const [smKonum, setSmKonum] = useState('');
     const fileInputRef = useRef(null);
     const fileInputRefSM = useRef(null);
+    // Konum listesi MEVCUT cihazlardan: serit metrelerin konumu kaynak
+    // formda yok, bolum sutunu konum yerine kullanilinca cihazlar
+    // "SETLEME PERSONELI" konumuna dusuyordu.
+    const konumlar = Array.from(new Set((instruments || [])
+        .map(i => String(i.location || '').trim()).filter(Boolean))).sort();
 
     const handleFileChange = (e) => {
-        if (e.target.files && e.target.files.length > 0) {
-            setFile(e.target.files[0]);
-        } else {
-            setFile(null);
-        }
+        const secilen = (e.target.files && e.target.files.length > 0)
+            ? e.target.files[0] : null;
+        setFile(secilen);
         setError('');
+        setSmOzet(null);
+        if (mode === 'sritMetre') smOnIzle(secilen);
     };
 
     const resetState = () => {
         setFile(null);
         setError('');
         setIsLoading(false);
+        setSmOzet(null);
         if (fileInputRef.current) fileInputRef.current.value = "";
         if (fileInputRefSM.current) fileInputRefSM.current.value = "";
     };
@@ -4671,57 +4810,69 @@ const DataImportModal = ({ isOpen, onClose, onImport }) => {
         reader.readAsBinaryString(file);
     };
 
-    const handleSMImport = () => {
-        if (!file) { setError('Lütfen Şerit Metre zimmet listesi Excel dosyasını seçin.'); return; }
-        setIsLoading(true);
+    // Dosya secilince ONCE ayristirilir, sonuc kullaniciya gosterilir.
+    // Onceden dogrudan iceri aliniyordu; yanlis sayfa okundugunda
+    // kullanici ancak mevcut cihazlar bozulduktan sonra fark ediyordu.
+    const smOnIzle = (secilen) => {
+        setSmOzet(null);
+        if (!secilen) return;
         const reader = new FileReader();
         reader.onload = (evt) => {
             try {
-                const bstr = evt.target.result;
-                const wb = XLSX.read(bstr, { type: 'binary', cellDates: true });
-                const wsName = wb.SheetNames.find(n => /sayfa2/i.test(n)) || wb.SheetNames[wb.SheetNames.length - 1];
-                const ws = wb.Sheets[wsName];
-                const raw = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, dateNF: 'yyyy-mm-dd' });
-                let headerIdx = 4;
-                for (let i = 0; i < Math.min(raw.length, 10); i++) {
-                    const r = raw[i] || [];
-                    if (r.some(c => c && String(c).toUpperCase().includes('DOĞRULAMA'))) { headerIdx = i; break; }
+                const wb = XLSX.read(evt.target.result,
+                    { type: 'binary', cellDates: true });
+                const sonuc = smAyristir(wb);
+                if (sonuc.hata) { setError(sonuc.hata); return; }
+                if (!sonuc.satirlar.length) {
+                    setError('"' + sonuc.sayfa + '" sayfasında geçerli satır yok.');
+                    return;
                 }
-                const dataRows = raw.slice(headerIdx + 1).filter(r => r && r[1] != null && String(r[1]).trim() !== '');
-                if (dataRows.length === 0) throw new Error("Sayfa2'de geçerli veri satırı bulunamadı.");
-                const stdHeaders = [
-                    'Cihaz ID', 'Cihaz Adı', 'Seri No', 'Model', 'Konum', 'Departman',
-                    'Kal. Aralığı (Ay)', 'İzin Verilen Sapma', 'Birim', 'Ölçüm Aralığı', 'Çözünürlük', 'Procedür',
-                    'Son Kalibrasyon Tarihi', 'Kayıt Tipi', 'Tarih', 'Teknisyen', 'Firma', 'Rapor No',
-                    'Sapma', 'Belirsizlik', 'Notlar', 'Zimmetli Personel', 'Referans Cihaz Seri No'
-                ];
-                const rows = [stdHeaders];
-                dataRows.forEach(r => {
-                    const no = parseInt(String(r[1] || '').trim(), 10);
-                    if (isNaN(no)) return;
-                    const id = 'SM-' + String(no).padStart(3, '0');
-                    const sorumlu = String(r[2] || '').trim();
-                    const bolum = String(r[4] || '').trim();
-                    const dogTarih = r[5] ? String(r[5]).trim() : '';
-                    const kullanim = String(r[3] || '').trim();
-                    rows.push([
-                        id, 'Şerit Metre', id, '', bolum, bolum,
-                        6, 1, 'mm', '0-5000 mm', '1 mm', '',
-                        dogTarih, 'Doğrulama', dogTarih, sorumlu, '', '',
-                        0, 0, kullanim, sorumlu, ''
-                    ]);
-                });
-                if (rows.length < 2) throw new Error('İşlenecek geçerli satır bulunamadı.');
-                onImport(rows);
-                handleClose();
+                setError('');
+                setSmOzet(sonuc);
             } catch (e) {
                 setError(`Dosya okunurken hata: ${e.message}`);
-            } finally {
-                setIsLoading(false);
             }
         };
-        reader.onerror = () => { setError('Dosya okunamadı.'); setIsLoading(false); };
-        reader.readAsBinaryString(file);
+        reader.onerror = () => setError('Dosya okunamadı.');
+        reader.readAsBinaryString(secilen);
+    };
+
+    const handleSMImport = () => {
+        if (!smOzet) { setError('Önce dosyayı seçin.'); return; }
+        if (!smKonum.trim()) { setError('Şerit metrelerin konumunu seçin.'); return; }
+        setIsLoading(true);
+        try {
+            const stdHeaders = [
+                'Cihaz ID', 'Cihaz Adı', 'Seri No', 'Model', 'Konum', 'Departman',
+                'Kal. Aralığı (Ay)', 'İzin Verilen Sapma', 'Birim', 'Ölçüm Aralığı',
+                'Çözünürlük', 'Prosedür',
+                'Son Kalibrasyon Tarihi', 'Kayıt Tipi', 'Tarih', 'Teknisyen',
+                'Firma', 'Rapor No', 'Sapma', 'Belirsizlik', 'Notlar',
+                'Zimmetli Personel', 'Referans Cihaz Seri No'
+            ];
+            const gg = (d) => String(d.getDate()).padStart(2, '0') + '.'
+                + String(d.getMonth() + 1).padStart(2, '0') + '.' + d.getFullYear();
+            const rows = [stdHeaders];
+            smOzet.satirlar.forEach(s => {
+                const id = 'SM-' + String(s.no).padStart(3, '0');
+                const tarih = gg(s.dogrulama);
+                rows.push([
+                    id, 'Şerit Metre', id, '', smKonum.trim(), s.bolum,
+                    s.ay || 6, 1, 'mm', '0-5000 mm', '1 mm',
+                    'FR72 Şerit Metre Zimmet Takip Listesi',
+                    tarih, 'Doğrulama', tarih, s.sorumlu, '', '',
+                    '', '', s.durum, s.sorumlu, ''
+                ]);
+            });
+            // kaynak bilgisi: mevcut SERIT METRE OLMAYAN cihazlar
+            // guncellenmesin (asil hata buydu).
+            onImport(rows, null, { kaynak: 'seritmetre' });
+            handleClose();
+        } catch (e) {
+            setError(`İçe aktarma hatası: ${e.message}`);
+        } finally {
+            setIsLoading(false);
+        }
     };
 
     const handleDownloadTemplate = () => {
@@ -4777,10 +4928,15 @@ const DataImportModal = ({ isOpen, onClose, onImport }) => {
                 mode === 'sritMetre' && e(React.Fragment, null,
                     e("div", { className: "rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 p-3 text-sm text-amber-800 dark:text-amber-200 space-y-1" },
                         e("p", { className: "font-semibold" }, "Şerit Metre Zimmet Takip Listesi"),
-                        e("p", null, "FR72 formatındaki Excel dosyasını (Sayfa2) yükleyin. Her şerit metre ",
+                        e("p", null, "FR72 zimmet listesini yükleyin. Liste sayfası ",
+                            e("b", null, "başlıklarından"),
+                            " bulunur, sayfa adı önemli değil. Her şerit metre ",
                             e("span", { className: "font-mono bg-amber-100 dark:bg-amber-800/40 px-1 rounded" }, "SM-001"),
-                            " gibi ID ile eklenir. Doğrulama tarihi ve zimmetli personel otomatik aktarılır."
-                        )
+                            " gibi ID ile eklenir. Doğrulama tarihi ve zimmetli personel aktarılır."
+                        ),
+                        e("p", { className: "text-xs" },
+                            "İçe aktarma yalnızca şerit metre kayıtlarına dokunur; " +
+                            "aynı ID'yi taşıyan başka bir cihaz varsa güncellenmez.")
                     ),
                     e("div", { className: "pt-2" },
                         e(FormInput, {
@@ -4791,6 +4947,44 @@ const DataImportModal = ({ isOpen, onClose, onImport }) => {
                             accept: ".xlsx, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                             onChange: handleFileChange
                         })
+                    ),
+                    smOzet && e("div", { className: "rounded-lg border border-slate-200 dark:border-slate-700 p-3 space-y-2 text-sm" },
+                        e("p", { className: "font-semibold text-slate-700 dark:text-slate-200" },
+                            "Okunan sayfa: ",
+                            e("span", { className: "font-mono" }, smOzet.sayfa)),
+                        e("p", { className: "text-slate-600 dark:text-slate-300" },
+                            smOzet.satirlar.length + " şerit metre okundu"
+                            + (smOzet.satirlar.length
+                                ? " (SM-" + String(smOzet.satirlar[0].no).padStart(3, '0')
+                                  + " … SM-" + String(smOzet.satirlar[smOzet.satirlar.length - 1].no).padStart(3, '0') + ")"
+                                : "")),
+                        e("p", { className: "text-slate-600 dark:text-slate-300" },
+                            "Doğrulama aralığı: "
+                            + (smOzet.satirlar[0] && smOzet.satirlar[0].ay
+                                ? smOzet.satirlar[0].ay + " ay (listedeki iki tarihten)"
+                                : "listede yok, 6 ay varsayılacak")),
+                        smOzet.atlanan.length > 0 && e("details", { className: "text-amber-700 dark:text-amber-300" },
+                            e("summary", { className: "cursor-pointer font-semibold" },
+                                smOzet.atlanan.length + " satır atlandı"),
+                            e("ul", { className: "list-disc ml-5 mt-1 space-y-0.5 max-h-32 overflow-auto" },
+                                smOzet.atlanan.slice(0, 20).map((a, i) =>
+                                    e("li", { key: i }, "Satır " + a.satir + ": " + a.sebep)))
+                        ),
+                        e("div", { className: "pt-1" },
+                            e("label", { className: "block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1" },
+                                "Konum (zorunlu)"),
+                            e("input", {
+                                list: "sm-konum-listesi",
+                                value: smKonum,
+                                onChange: (ev) => setSmKonum(ev.target.value),
+                                placeholder: "ör. Ankara",
+                                className: "w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-md bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
+                            }),
+                            e("datalist", { id: "sm-konum-listesi" },
+                                konumlar.map(k => e("option", { key: k, value: k }))),
+                            e("p", { className: "text-xs text-slate-500 dark:text-slate-400 mt-1" },
+                                "Zimmet listesinde konum sütunu yok; cihazların bulunduğu tesisi seçin.")
+                        )
                     )
                 ),
 
