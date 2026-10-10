@@ -44,6 +44,7 @@ function aktar(mevcut, kayitlar, konumlar) {
         RecordType: { CALIBRATION: 'Kalibrasyon', VERIFICATION: 'Doğrulama' },
         CalibrationResult: CR,
         dateKeyOf: gercek('dateKeyOf'),
+        _excelGunu: new Function(src.match(/const _excelGunu = [\s\S]*?;\r?\n/)[0] + 'return _excelGunu;')(),
         calculateEffectiveDeviation: gercek('calculateEffectiveDeviation'),
         getCalibrationResult: gercek('getCalibrationResult'),
         generateSequentialId: gercek('generateSequentialId'),
@@ -51,7 +52,7 @@ function aktar(mevcut, kayitlar, konumlar) {
         console: { log: t => out.log.push(t), warn: () => {} },
         String, Number, Object, Array, Date, Map, Set, JSON, Math, isNaN, parseInt, parseFloat
     };
-    new Function('__k', 'with (__k) {\n' + govdeAl('const handleUnifiedImport = (data, sayfaAdi) => {')
+    new Function('__k', 'with (__k) {\n' + govdeAl('const handleUnifiedImport = (data, sayfaAdi, secenek) => {')
         + '\nreturn handleUnifiedImport;\n}')(
         new Proxy(ortam, { has: () => true, get: (t, p) => (p in t ? t[p] : function () {}) }))(satirlar, sayfaAdi);
     return out;

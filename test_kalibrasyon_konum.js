@@ -19,7 +19,7 @@ function goc(settings) {
     return yazilan;
 }
 
-const STANDART = ['Çerkezköy', 'Ankara', 'Eskişehir', 'Sakarya', 'Adana', 'Bursa'];
+const STANDART = ['Çerkezköy', 'Ankara', 'Eskişehir', 'Sakarya', 'Adana', 'Bursa', 'Veliköy'];
 
 // 1) Kullanicinin mevcut konumlari KORUNUR, eksikler eklenir
 {
@@ -45,7 +45,7 @@ const STANDART = ['Çerkezköy', 'Ankara', 'Eskişehir', 'Sakarya', 'Adana', 'Bu
 // 3) Goc BIR KEZ calisir: ikinci acilista dokunmaz
 {
     const ilk = goc({ locations: ['Çerkezköy'] });
-    assert.strictEqual(ilk.konumSurum, 2, '3a: sürüm damgası konmadı');
+    assert.strictEqual(ilk.konumSurum, 3, '3a: sürüm damgası konmadı');
     const ikinci = goc(ilk);
     assert.strictEqual(ikinci, null, '3b: göç ikinci kez çalıştı');
     console.log('✓ 3  göç bir kez çalışıyor, sonraki açılışlarda dokunmuyor');
@@ -76,6 +76,16 @@ const STANDART = ['Çerkezköy', 'Ankara', 'Eskişehir', 'Sakarya', 'Adana', 'Bu
     ['Laboratuvar', 'Atölye', 'Saha'].forEach(l =>
         assert(m[1].includes(l), '6c: eski varsayılan silinmiş: ' + l));
     console.log('✓ 6  yeni kurulum varsayılanında şehirler var, eskiler duruyor');
+}
+
+// 7) Surum 2'yi gormus kullaniciya YALNIZ Veliköy eklenir; sildigi Adana geri gelmez
+{
+    const r = goc({ locations: ['Çerkezköy', 'Ankara'], konumSurum: 2 });
+    assert(r, '7a: sürüm 2 kullanıcısına Veliköy eklenmedi');
+    assert.deepStrictEqual(r.locations, ['Çerkezköy', 'Ankara', 'Veliköy'], '7b: ' + r.locations);
+    assert.strictEqual(r.konumSurum, 3, '7c: sürüm 3 olmadı');
+    assert.strictEqual(goc(r), null, '7d: göç ikinci kez çalıştı');
+    console.log('✓ 7  sürüm 2 kullanıcısına yalnız Veliköy ekleniyor, silinenler geri gelmiyor');
 }
 
 console.log('\nTüm senaryolar geçti.');

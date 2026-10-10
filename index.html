@@ -755,7 +755,7 @@ const App = () => {
         logo: null,
         reminderDays: 30,
         departments: ["Kalite", "Üretim", "Ar-Ge", "Bakım", "Üretim Müdürü", "Ar-Ge Müdürü", "Kalite Müdürü", "CNC", "Üretim Sorumlusu", "Laminasyon", "Depo Ofis", "Vargel", "KP4", "Kalite Mühendisi", "Vardiya Amiri", "Yatay / Jet", "Sıcaklaminasyon / H Pres", "Depo", "Hizmetli", "Kalite Kontrol", "Bakımcı"],
-        locations: ["Çerkezköy", "Ankara", "Eskişehir", "Sakarya", "Adana", "Bursa", "Laboratuvar", "Atölye", "Saha"],
+        locations: ["Çerkezköy", "Ankara", "Eskişehir", "Sakarya", "Adana", "Bursa", "Veliköy", "Laboratuvar", "Atölye", "Saha"],
         emailNotificationsEnabled: false,
         notificationEmail: '',
         serviceUrl: '',
@@ -782,14 +782,18 @@ const App = () => {
     // kullanıcının sildiği bir konum geri gelirdi. konumSurum bayrağı
     // sayesinde bu göç yalnız bir kez çalışır, sonra silme kalıcıdır.
     useEffect(() => {
-        if ((settings.konumSurum || 0) >= 2) return;
-        const standart = ["Çerkezköy", "Ankara", "Eskişehir", "Sakarya", "Adana", "Bursa"];
+        // Sürüm 3: Veliköy eklendi. Sürüm 2'yi görmüş kullanıcıya YALNIZ
+        // Veliköy eklenir; sildiği eski konumlar geri gelmez.
+        const surum = settings.konumSurum || 0;
+        if (surum >= 3) return;
+        const standart = surum >= 2 ? ["Veliköy"]
+            : ["Çerkezköy", "Ankara", "Eskişehir", "Sakarya", "Adana", "Bursa", "Veliköy"];
         const mevcut = settings.locations || [];
         const eksik = standart.filter(l => !mevcut.includes(l));
         setSettings(prev => ({
             ...prev,
             locations: eksik.length ? [...mevcut, ...eksik] : mevcut,
-            konumSurum: 2
+            konumSurum: 3
         }));
     }, []);
 
@@ -1378,7 +1382,7 @@ return instruments.map(instrument => {
         const parseDateToISO = (dateInput) => {
             if (!dateInput || (typeof dateInput === 'string' && dateInput.toLowerCase() === 'gg.aa.yyyy')) return null;
             if (dateInput instanceof Date) {
-                return !isNaN(dateInput.getTime()) ? dateKeyOf(dateInput) : null;
+                return !isNaN(dateInput.getTime()) ? dateKeyOf(_excelGunu(dateInput)) : null;
             }
             if (typeof dateInput === 'string') {
                 const parts = dateInput.match(/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})$/);
@@ -1428,6 +1432,8 @@ return instruments.map(instrument => {
             'KALİBRASYON PERİYODU': 'calibrationInterval',
             'ÖNCEKİ KALİBRASYON TARİHİ': 'lastCalibrationDate',
             'KALİBRASYON FİRMASI': 'calibratingCompany',
+            // Ozgun PL12'de KALİBRASYON KODU = sertifika numarasi (AS25.01634)
+            'KALİBRASYON KODU': 'reportNumber',
             'ELDE EDİLEN SAPMA DEĞERİ (+/-)': 'deviation',
             'ELDE EDİLEN SAPMA DEĞERİ': 'deviation',
             'ÖLÇÜM BELİRSİZLİĞİ (U)': 'uncertainty',
@@ -1540,6 +1546,15 @@ return instruments.map(instrument => {
             const serial = _grpKey(realSerial, providedId, 'IMP'+rowIndex); // gruplama anahtarı (seri geçersizse Cihaz ID)
             let instrumentToProcess;
             let existingInstrument = existingInstrumentsBySerial.get(serial);
+            // Ayni seri no BASKA tesisteki cihazda: o cihaz guncellenmez,
+            // bu satir kendi tesisinde ayri cihaz olur (Veliköy listesi
+            // Ankara/Çerkezköy cihazini ezmesin).
+            if (existingInstrument && rowData.location && existingInstrument.location
+                    && _katla(existingInstrument.location) !== _katla(rowData.location)) {
+                console.warn('[ice aktarma] seri ' + serial + ' baska tesiste ('
+                    + existingInstrument.location + '), ' + rowData.location + ' icin ayri cihaz acildi');
+                existingInstrument = null;
+            }
 
             const instrumentDataFromRow = Object.fromEntries(
                 Object.entries(restOfRowData).filter(([_, v]) => v !== undefined && v !== null && String(v).trim() !== '')
@@ -3670,6 +3685,11 @@ const CorrectionTableModal = ({ isOpen, onClose, record, instrument }) => {
 // 'SM-01' ile 'SM1', '0143K-0726-01126' ile '0143K072601126' esittir.
 const _rprAnahtar = (x) => String(x == null ? '' : x).toUpperCase().replace(/[^A-Z0-9]/g, '');
 const _seriAnahtar = (x) => _rprAnahtar(x).replace(/\d+/g, (d) => String(parseInt(d, 10)));
+// SheetJS 0.18.5 (cellDates) Istanbul'da tarih hucresini BIR ONCEKI GUN
+// 23:59:04 olarak veriyor (1899 yerel saat farki): 10.07.2025 -> 2025-07-09
+// kaydediliyordu. Excel'den gelen tarih en yakin gece yarisina yuvarlanir.
+const _excelGunu = (d) => new Date(d.getFullYear(), d.getMonth(),
+    d.getDate() + (d.getHours() >= 12 ? 1 : 0));
 // Turkce harfleri katla: 'ŞERİTMETRE' ile 'SERITMETRE' ayni sayilsin.
 const _katla = (x) => String(x == null ? '' : x)
     .replace(/[ıİ]/g, 'I').replace(/[şŞ]/g, 'S').replace(/[ğĞ]/g, 'G')
@@ -4658,7 +4678,7 @@ const CalibrationForm = ({ isOpen, onClose, onSave, onUpdateRecord, instrumentId
 
 // Surum damgasi: tarayici ESKI kopyayi calistiriyorsa konsolda eski
 // tarih gorunur. "Deploy oldu mu" sorusu boylece tek bakista cevaplanir.
-const KALIB_SURUM = '2026-09-21 · serit metre icaktarma v4';
+const KALIB_SURUM = '2026-10-10 · Veliköy + tesis korumasi';
 try { console.log('[kalibrasyon] surum: ' + KALIB_SURUM); } catch (_) {}
 
 // Sunucudaki surum ile calisan surumu karsilastirir.
@@ -4697,7 +4717,7 @@ const SM_SUTUN = [
 
 function _smTarih(x) {
     if (x == null || String(x).trim() === '') return null;
-    if (x instanceof Date) return isNaN(x.getTime()) ? null : x;
+    if (x instanceof Date) return isNaN(x.getTime()) ? null : _excelGunu(x);
     const s = String(x).trim();
     let m = s.match(/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})$/);
     if (m) return new Date(+m[3], +m[2] - 1, +m[1]);
@@ -4716,8 +4736,12 @@ function _smAy(ilk, son) {
 function smAyristir(wb) {
     let bulunan = null;
     for (const ad of wb.SheetNames) {
+        // raw: true — tarih hucresi Date gelir. raw: false hucrenin KENDI
+        // bicimini yaziyordu: Veliköy listesi "6/17/26" (a/g/yy) okunamadi,
+        // 28 satirin hepsi atlandi. Metin olarak girilmis tarih ("17.06.2026")
+        // _smTarih'te yine cozulur.
         const raw = XLSX.utils.sheet_to_json(wb.Sheets[ad],
-            { header: 1, raw: false, dateNF: 'yyyy-mm-dd' });
+            { header: 1, raw: true });
         for (let i = 0; i < Math.min(raw.length, 12); i++) {
             // Array.from: sheet_to_json SEYREK dizi dondurur, .map
             // deliklerin uzerinden atlar ve undefined birakir.
@@ -4925,11 +4949,21 @@ const DataImportModal = ({ isOpen, onClose, onImport, instruments }) => {
             const gg = (d) => String(d.getDate()).padStart(2, '0') + '.'
                 + String(d.getMonth() + 1).padStart(2, '0') + '.' + d.getFullYear();
             const rows = [stdHeaders];
+            // Ankara'nin serit metreleri SM-001... kimligini kullaniyor.
+            // Baska tesisin listesi ayni kimlikle gelirse o cihazlar
+            // (konumu dahil) EZILIYORDU. Duz SM-nnn kimligi BASKA konumda
+            // varsa bu listenin tamami tesis kodlu olur: SM-VEL-001.
+            const konum = smKonum.trim();
+            const konumAyni = (a, b) => _katla(a) === _katla(b);
+            const baskaTesiste = (instruments || []).some(i =>
+                /^SM-?\d{1,3}$/i.test(String(i.serialNumber || i.id || '').trim())
+                && i.location && !konumAyni(i.location, konum));
+            const onEk = baskaTesiste ? 'SM-' + _katla(konum).slice(0, 3) + '-' : 'SM-';
             smOzet.satirlar.forEach(s => {
-                const id = 'SM-' + String(s.no).padStart(3, '0');
+                const id = onEk + String(s.no).padStart(3, '0');
                 const tarih = gg(s.dogrulama);
                 rows.push([
-                    id, 'Şerit Metre', id, '', smKonum.trim(), s.bolum,
+                    id, 'Şerit Metre', id, '', konum, s.bolum,
                     s.ay || 6, 1, 'mm', smAralik.trim() || '0-3000 mm',
                     '1 mm',
                     'FR72 Şerit Metre Zimmet Takip Listesi',
