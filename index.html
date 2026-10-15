@@ -1441,7 +1441,11 @@ return instruments.map(instrument => {
             'Kal. Firması': 'calibratingCompany',
             'Doğrulayan': 'technician',
             // Seri nosuz cihazin kimligi: bir onceki sertifikanin numarasi
-            'Önceki Rapor No': 'oncekiRapor'
+            'Önceki Rapor No': 'oncekiRapor',
+            // Yedekten geri yuklemede Drive'daki sertifika baglantisi korunur
+            // (dogrulama defteri sayfalari E-Tablo baglantisidir: adresler aynen alinir)
+            'Rapor Dosyası': 'raporDosyaAdi', 'Rapor Drive ID': 'raporDriveId',
+            'Rapor Bağlantısı': 'raporUrl', 'Rapor Önizleme': 'raporOnizleme'
         };
 
         // Başlık/antet satırlarını atla: headerMap ile eşleşen ilk satırı gerçek header kabul et
@@ -1550,7 +1554,9 @@ return instruments.map(instrument => {
             }
 
             const oncekiRapor = rowData.oncekiRapor;
-            delete rowData.oncekiRapor;
+            const driveId = String(rowData.raporDriveId == null ? '' : rowData.raporDriveId).trim();
+            const driveAdi = rowData.raporDosyaAdi, driveUrl = rowData.raporUrl, driveOnizleme = rowData.raporOnizleme;
+            ['oncekiRapor', 'raporDriveId', 'raporDosyaAdi', 'raporUrl', 'raporOnizleme'].forEach(a => { delete rowData[a]; });
             const { id: providedId, ...restOfRowData } = rowData;
             const realSerial = String(rowData.serialNumber || '');
             const serial = _grpKey(realSerial, providedId, 'IMP'+rowIndex); // gruplama anahtarı (seri geçersizse Cihaz ID)
@@ -1579,6 +1585,15 @@ return instruments.map(instrument => {
                     return;
                 }
                 existingInstrument = cihaz;
+            }
+            // Seri nosuz satirin raporu zaten kayitliysa cihaz odur: liste ikinci
+            // kez yuklenince seri nosuz cihazlar ikiye katlaniyordu.
+            if (!existingInstrument && !_validSer(realSerial) && !_validCid(providedId) && rowData.reportNumber) {
+                const rn = _rprAnahtar(rowData.reportNumber);
+                const kayit = rn.length >= 6 && (calibrationRecords || []).find(r => _rprAnahtar(r.reportNumber) === rn);
+                const cihaz = kayit && instruments.find(i => i.id === kayit.instrumentId);
+                if (cihaz && (!rowData.location || !cihaz.location
+                        || _katla(cihaz.location) === _katla(rowData.location))) existingInstrument = cihaz;
             }
 
             const instrumentDataFromRow = Object.fromEntries(
@@ -1634,7 +1649,10 @@ return instruments.map(instrument => {
                     recordType: Object.values(RecordType).includes(rowData.recordType) ? rowData.recordType : RecordType.CALIBRATION,
                     result: result,
                     assignedPersonnel: rowData.assignedPersonnel || '',
-                    reportFile: null,
+                    reportFile: driveId ? { name: String(driveAdi || rowData.reportNumber || 'rapor') ,
+                        driveFileId: driveId,
+                        driveUrl: driveUrl || ('https://drive.google.com/file/d/' + driveId + '/view?usp=sharing'),
+                        previewUrl: driveOnizleme || ('https://drive.google.com/file/d/' + driveId + '/preview') } : null,
                     referenceInstrumentId: '',
                 };
                 
@@ -4709,7 +4727,7 @@ const CalibrationForm = ({ isOpen, onClose, onSave, onUpdateRecord, instrumentId
 
 // Surum damgasi: tarayici ESKI kopyayi calistiriyorsa konsolda eski
 // tarih gorunur. "Deploy oldu mu" sorusu boylece tek bakista cevaplanir.
-const KALIB_SURUM = '2026-10-15 · onceki rapor no ile esleme';
+const KALIB_SURUM = '2026-10-15b · yedekten geri yukleme';
 try { console.log('[kalibrasyon] surum: ' + KALIB_SURUM); } catch (_) {}
 
 // Sunucudaki surum ile calisan surumu karsilastirir.
