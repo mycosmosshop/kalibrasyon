@@ -1439,7 +1439,9 @@ return instruments.map(instrument => {
             'ÖLÇÜM BELİRSİZLİĞİ (U)': 'uncertainty',
             'ÖLÇÜM BELİRSİZLİĞİ': 'uncertainty',
             'Kal. Firması': 'calibratingCompany',
-            'Doğrulayan': 'technician'
+            'Doğrulayan': 'technician',
+            // Seri nosuz cihazin kimligi: bir onceki sertifikanin numarasi
+            'Önceki Rapor No': 'oncekiRapor'
         };
 
         // Başlık/antet satırlarını atla: headerMap ile eşleşen ilk satırı gerçek header kabul et
@@ -1484,7 +1486,11 @@ return instruments.map(instrument => {
         const _grpKey = (serialV, cidV, uniq)=> _validSer(serialV) || (_validCid(cidV) ? ('CID::'+_validCid(cidV)) : ('ROW::'+uniq));
         const existingInstrumentsBySerial = new Map(instruments.map(inst => [_grpKey(inst.serialNumber, inst.providedId || inst.id, 'EX'+inst.id), inst]));
         let newInstrumentCounter = 0;
+        // Anahtar CIHAZ ID: eskiden seri no idi; seri nosuz (CID::) cihazlarin
+        // guncellemesi ve son kalibrasyon tarihi hic islenmiyor, ayni seri no
+        // baska tesiste de varsa iki cihaz ayni nesneyle eziliyordu.
         let updatedInstrumentsMap = new Map();
+        const bulunmayanOnceki = [];
 
         rows.forEach((row, rowIndex) => {
             const rowData = {};
@@ -1528,7 +1534,9 @@ return instruments.map(instrument => {
                 rowData.date = rowData.lastCalibrationDate;
             }
 
-            if (!rowData.serialNumber && !rowData.id && !rowData.name) {
+            // 'Önceki Rapor No' tek basina yeter: ad/seri yazilmazsa cihazin mevcut
+            // adi ve seri nosu degismez.
+            if (!rowData.serialNumber && !rowData.id && !rowData.name && !rowData.oncekiRapor) {
                 console.warn(`Satır ${rowIndex + 2} atlandı: boş satır (seri no / cihaz id / ad yok).`);
                 return;
             }
@@ -1541,6 +1549,8 @@ return instruments.map(instrument => {
                 return;
             }
 
+            const oncekiRapor = rowData.oncekiRapor;
+            delete rowData.oncekiRapor;
             const { id: providedId, ...restOfRowData } = rowData;
             const realSerial = String(rowData.serialNumber || '');
             const serial = _grpKey(realSerial, providedId, 'IMP'+rowIndex); // gruplama anahtarı (seri geçersizse Cihaz ID)
@@ -1554,6 +1564,21 @@ return instruments.map(instrument => {
                 console.warn('[ice aktarma] seri ' + serial + ' baska tesiste ('
                     + existingInstrument.location + '), ' + rowData.location + ' icin ayri cihaz acildi');
                 existingInstrument = null;
+            }
+            // Seri nosuz cihazlar (sicaklik gostergesi, dedektor mastari, kutle...)
+            // liste yeniden yuklenince her seferinde YENI cihaz aciyordu. 'Önceki
+            // Rapor No' verilirse cihaz o raporun kaydindan bulunur; bulunamazsa ya
+            // da baska tesisteyse satir atlanir (cift cihaz acilmaz).
+            if (oncekiRapor != null && String(oncekiRapor).trim()) {
+                const rn = _rprAnahtar(oncekiRapor);
+                const kayit = (calibrationRecords || []).find(r => _rprAnahtar(r.reportNumber) === rn);
+                const cihaz = kayit && instruments.find(i => i.id === kayit.instrumentId);
+                if (!cihaz || (rowData.location && cihaz.location
+                        && _katla(cihaz.location) !== _katla(rowData.location))) {
+                    bulunmayanOnceki.push(String(oncekiRapor).trim());
+                    return;
+                }
+                existingInstrument = cihaz;
             }
 
             const instrumentDataFromRow = Object.fromEntries(
@@ -1574,7 +1599,7 @@ return instruments.map(instrument => {
 
             if (existingInstrument) {
                 instrumentToProcess = { ...existingInstrument, ...instrumentDataFromRow };
-                updatedInstrumentsMap.set(serial, instrumentToProcess);
+                updatedInstrumentsMap.set(existingInstrument.id, instrumentToProcess);
             } else {
                 instrumentToProcess = newInstrumentsFromExcel.get(serial);
                 if (!instrumentToProcess) {
@@ -1646,7 +1671,7 @@ return instruments.map(instrument => {
             return;
         }
         
-        let finalInstruments = instruments.map(inst => updatedInstrumentsMap.get(String(inst.serialNumber)) || inst);
+        let finalInstruments = instruments.map(inst => updatedInstrumentsMap.get(inst.id) || inst);
         const newInstrumentsToAdd = Array.from(newInstrumentsFromExcel.values());
 
         const allCurrentIds = new Set(finalInstruments.map(i => i.id));
@@ -1679,10 +1704,10 @@ return instruments.map(instrument => {
         finalInstruments.push(...newInstrumentsWithFinalIds);
         const allRecords = [...calibrationRecords, ...newRecords];
         
-        const affectedInstrumentSerials = new Set([...updatedInstrumentsMap.keys(), ...newInstrumentsFromExcel.keys()]);
+        const etkilenenIdler = new Set([...updatedInstrumentsMap.keys(), ...newInstrumentsWithFinalIds.map(i => i.id)]);
 
         finalInstruments = finalInstruments.map(inst => {
-            if (affectedInstrumentSerials.has(String(inst.serialNumber))) {
+            if (etkilenenIdler.has(inst.id)) {
                 const latestCalibrationRecord = allRecords
                     .filter(r => r.instrumentId === inst.id && r.recordType === RecordType.CALIBRATION)
                     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
@@ -1702,6 +1727,12 @@ return instruments.map(instrument => {
             + ' · korunan: ' + korunanCihazlar.length
             + ' · mukerrer atlanan kayit: ' + atlananKayit
             + ' · toplam cihaz: ' + finalInstruments.length);
+        if (bulunmayanOnceki.length) {
+            console.warn('[ice aktarma] onceki rapor no ile cihaz bulunamadi: ' + bulunmayanOnceki.join(' | '));
+            toastService.warning(bulunmayanOnceki.length + ' satır atlandı: önceki rapor numarasıyla bu tesiste '
+                + 'cihaz bulunamadı (yeni cihaz açılmadı) — ' + bulunmayanOnceki.slice(0, 5).join(', ')
+                + (bulunmayanOnceki.length > 5 ? ' …' : ''));
+        }
         if (atlananKayit) {
             toastService.info(atlananKayit + ' kayıt zaten vardı, '
                 + 'tekrar eklenmedi (aynı cihaz, aynı tarih, aynı tip).');
@@ -4678,7 +4709,7 @@ const CalibrationForm = ({ isOpen, onClose, onSave, onUpdateRecord, instrumentId
 
 // Surum damgasi: tarayici ESKI kopyayi calistiriyorsa konsolda eski
 // tarih gorunur. "Deploy oldu mu" sorusu boylece tek bakista cevaplanir.
-const KALIB_SURUM = '2026-10-10 · Veliköy + tesis korumasi';
+const KALIB_SURUM = '2026-10-15 · onceki rapor no ile esleme';
 try { console.log('[kalibrasyon] surum: ' + KALIB_SURUM); } catch (_) {}
 
 // Sunucudaki surum ile calisan surumu karsilastirir.
