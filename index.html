@@ -1614,6 +1614,7 @@ return instruments.map(instrument => {
             const instrumentDataFromRow = Object.fromEntries(
                 Object.entries(restOfRowData).filter(([_, v]) => v !== undefined && v !== null && String(v).trim() !== '')
             );
+            if ('serialNumber' in instrumentDataFromRow) instrumentDataFromRow.serialNumber = String(instrumentDataFromRow.serialNumber);
 
             if (existingInstrument && yalnizSM) {
                 // Ayni kimligi tasiyan cihaz SERIT METRE degilse dokunma.
@@ -3002,10 +3003,8 @@ const InstrumentList = ({ instruments, onAddInstrument, onEditInstrument, onDele
         let filtered = instruments.filter(instrument => {
             const searchTermLower = filters.searchTerm.toLowerCase();
             return (
-                (instrument.name.toLowerCase().includes(searchTermLower) ||
-                 instrument.serialNumber.toLowerCase().includes(searchTermLower) ||
-                 instrument.location.toLowerCase().includes(searchTermLower) ||
-                 instrument.id.toLowerCase().includes(searchTermLower)) &&
+                ([instrument.name, instrument.serialNumber, instrument.location, instrument.id]
+                    .some(v => String(v ?? '').toLowerCase().includes(searchTermLower))) &&
                 (filters.status === '' || instrument.status === filters.status) &&
                 (filters.department === '' || instrument.department === filters.department) &&
                 (filters.location === '' || instrument.location === filters.location)
@@ -4085,16 +4084,10 @@ const AllCalibrationsView = ({ records, instruments, onEditRecord, onDeleteRecor
         let filtered = recordsWithDetails;
 
         if (term) {
-            filtered = filtered.filter(r => 
-                r.instrumentName.toLowerCase().includes(term) ||
-                r.instrumentSerial.toLowerCase().includes(term) ||
-                r.instrumentId.toLowerCase().includes(term) ||
-                r.technician.toLowerCase().includes(term) ||
-                r.calibratingCompany.toLowerCase().includes(term) ||
-                (r.reportNumber && r.reportNumber.toLowerCase().includes(term)) ||
-                (r.assignedPersonnel && r.assignedPersonnel.toLowerCase().includes(term)) ||
-                (r.referenceInstrumentName && r.referenceInstrumentName.toLowerCase().includes(term))
-            );
+            // Seri no / rapor no Excel'den SAYI gelebilir: hepsi metne cevrilir
+            filtered = filtered.filter(r => [r.instrumentName, r.instrumentSerial, r.instrumentId, r.technician,
+                r.calibratingCompany, r.reportNumber, r.assignedPersonnel, r.referenceInstrumentName]
+                .some(v => String(v ?? '').toLowerCase().includes(term)));
         }
         
         if (filters.result) {
@@ -4765,7 +4758,7 @@ const CalibrationForm = ({ isOpen, onClose, onSave, onUpdateRecord, instrumentId
 
 // Surum damgasi: tarayici ESKI kopyayi calistiriyorsa konsolda eski
 // tarih gorunur. "Deploy oldu mu" sorusu boylece tek bakista cevaplanir.
-const KALIB_SURUM = '2026-10-15d · sonucu yeniden hesapla';
+const KALIB_SURUM = '2026-10-15e · sayi seri no cokmesi';
 try { console.log('[kalibrasyon] surum: ' + KALIB_SURUM); } catch (_) {}
 
 // Sunucudaki surum ile calisan surumu karsilastirir.
