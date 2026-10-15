@@ -74,7 +74,9 @@ function aktar(mevcut, kayitlar, konumlar) {
     const kum = r.cihaz.find(c => String(c.serialNumber) === '37180517306');
     assert(kum, '2b: kumpas bulunamadı');
     assert(/KUMPAS/i.test(kum.name), '2c: ad (MAKİNA-BÖLÜM): ' + kum.name);
-    assert.strictEqual(kum.department, 'MESAFE ÖLÇÜMÜ', '2d: departman (İŞLEV)');
+    // İŞLEV ('MESAFE ÖLÇÜMÜ') departman DEĞİL; bölüm MAKİNA-BÖLÜM'ün '/' sonrası
+    assert.strictEqual(kum.department, /\/(.+)$/.test(kum.name) ? kum.name.split('/').pop().trim().toLocaleUpperCase('tr') : '', '2d: departman (MAKİNA-BÖLÜM): ' + kum.department);
+    assert.notStrictEqual(kum.department, 'MESAFE ÖLÇÜMÜ', '2d2: İŞLEV departmana yazıldı');
     assert.strictEqual(kum.measurementRange, '0-150 mm', '2e: ölçüm aralığı');
     assert.strictEqual(kum.unit, 'mm', '2f: birim');
     console.log('✓ 2  ad, departman, seri no, aralık ve birim doğru eşleşiyor');

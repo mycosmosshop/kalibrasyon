@@ -1438,7 +1438,7 @@ return instruments.map(instrument => {
             'İzin Ver. Sapma': 'permissibleDeviation',
             'Son Kalibrasyon': 'lastCalibrationDate',
             // Sanifoam'in OZGUN PL12 formu (PL 12- Kalibrasyon Takip Plani)
-            'MAKİNA-BÖLÜM': 'name', 'İŞLEV': 'department',
+            'MAKİNA-BÖLÜM': 'name',
             'SERİ NUMARASI': 'serialNumber', 'Cihaz Kodu': 'id',
             'TİPİ': 'model', 'ÖLÇME BİRİMİ': 'unit',
             'ÖLÇME ARALIĞI': 'measurementRange',
@@ -1538,6 +1538,9 @@ return instruments.map(instrument => {
                     .match(/-?\d+(?:\.\d+)?/);
                 if (t) rowData[alan] = parseFloat(t[0]);
             });
+            if (!rowData.department && typeof rowData.name === 'string' && rowData.name.indexOf('/') > 0) {
+                rowData.department = rowData.name.slice(rowData.name.lastIndexOf('/') + 1).trim().toLocaleUpperCase('tr');
+            }
             // Konum sutunu yoksa SAYFA ADINDAN cikar ('Ankara 2025' -> Ankara);
             // yalnizca ayarlardaki konum listesinde gecen bir ad kabul edilir.
             if (!rowData.location && sayfaAdi) {
@@ -4758,7 +4761,7 @@ const CalibrationForm = ({ isOpen, onClose, onSave, onUpdateRecord, instrumentId
 
 // Surum damgasi: tarayici ESKI kopyayi calistiriyorsa konsolda eski
 // tarih gorunur. "Deploy oldu mu" sorusu boylece tek bakista cevaplanir.
-const KALIB_SURUM = '2026-10-15e · sayi seri no cokmesi';
+const KALIB_SURUM = '2026-10-15f · islev departman degil';
 try { console.log('[kalibrasyon] surum: ' + KALIB_SURUM); } catch (_) {}
 
 // Sunucudaki surum ile calisan surumu karsilastirir.
