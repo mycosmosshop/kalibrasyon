@@ -328,6 +328,9 @@ const CalibrationStatus = {
     DUE_SOON: "Yaklaşıyor",
     OVERDUE: "Gecikmiş",
     PENDING: "Beklemede",
+    // Arizali / kalibrasyonu tutmadigi icin kullanimdan cikarilan cihaz:
+    // gecikmis sayilmaz, maile ve takvime girmez; sebebi ve tarihi cihazda yazar.
+    OUT_OF_SERVICE: "Kullanım Dışı",
 };
 const CalibrationResult = {
     COMPLIANT: "Uygun",
@@ -680,6 +683,7 @@ const StatusBadge = ({ status }) => {
         [CalibrationStatus.DUE_SOON]: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300',
         [CalibrationStatus.OVERDUE]: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300',
         [CalibrationStatus.PENDING]: 'bg-slate-100 text-slate-800 dark:bg-slate-700 dark:text-slate-300',
+        [CalibrationStatus.OUT_OF_SERVICE]: 'bg-stone-200 text-stone-600 line-through dark:bg-stone-700 dark:text-stone-300',
     };
     return (
         e("span", { className: `px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${statusClasses[status]}` },
@@ -922,6 +926,7 @@ const App = () => {
     }, [isCalendarOpen]);
 
     const getInstrumentStatus = useCallback((instrument, reminderDays) => {
+        if (instrument.kullanimDisi) return CalibrationStatus.OUT_OF_SERVICE;
         const { lastCalibrationDate, calibrationInterval } = instrument;
         if (!lastCalibrationDate) return CalibrationStatus.PENDING;
         const nextCalibrationDate = calculateNextCalibrationDate(lastCalibrationDate, calibrationInterval);
@@ -944,7 +949,7 @@ const __grouped = new Map();
 (calibrationRecords || []).forEach(r => { if (!r || !r.instrumentId) return; const a = __grouped.get(r.instrumentId) || []; a.push(r); __grouped.set(r.instrumentId, a); });
 return instruments.map(instrument => {
             const status = getInstrumentStatus(instrument, settings.reminderDays);
-            const nextCalibrationDate = instrument.lastCalibrationDate
+            const nextCalibrationDate = instrument.lastCalibrationDate && !instrument.kullanimDisi
                 ? calculateNextCalibrationDate(instrument.lastCalibrationDate, instrument.calibrationInterval)
                 : null;
             return {
@@ -963,7 +968,7 @@ return instruments.map(instrument => {
 
         const allInstrumentsWithDetails = instruments.map(instrument => {
             const status = getInstrumentStatus(instrument, settings.reminderDays);
-            const nextCalibrationDate = instrument.lastCalibrationDate
+            const nextCalibrationDate = instrument.lastCalibrationDate && !instrument.kullanimDisi
                 ? calculateNextCalibrationDate(instrument.lastCalibrationDate, instrument.calibrationInterval)
                 : null;
             return {
@@ -2432,7 +2437,8 @@ const Dashboard = ({ instrumentsWithStatus: _tumCihazlar, calibrationRecords: _t
         const dueSoon = instrumentsWithStatus.filter(i => i.status === CalibrationStatus.DUE_SOON).length;
         const overdue = instrumentsWithStatus.filter(i => i.status === CalibrationStatus.OVERDUE).length;
         const pending = instrumentsWithStatus.filter(i => i.status === CalibrationStatus.PENDING).length;
-        return { total, ok, dueSoon, overdue, pending };
+        const kullanimDisi = instrumentsWithStatus.filter(i => i.status === CalibrationStatus.OUT_OF_SERVICE).length;
+        return { total, ok, dueSoon, overdue, pending, kullanimDisi };
     }, [instrumentsWithStatus]);
 
     const recordStats = useMemo(() => {
@@ -2460,6 +2466,7 @@ const Dashboard = ({ instrumentsWithStatus: _tumCihazlar, calibrationRecords: _t
     const deviationItems = useMemo(() => {
         return instrumentsWithStatus
             .map(inst => {
+                if (inst.kullanimDisi) return null;     // kullanimdan cikarildi: sapmasi artik takip edilmez
                 const rec = calibrationRecords
                     .filter(r => r.instrumentId === inst.id)
                     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
@@ -2543,10 +2550,10 @@ const Dashboard = ({ instrumentsWithStatus: _tumCihazlar, calibrationRecords: _t
 
     useEffect(() => {
         const instrumentChartData = {
-            labels: [CalibrationStatus.OK, CalibrationStatus.DUE_SOON, CalibrationStatus.OVERDUE, CalibrationStatus.PENDING],
+            labels: [CalibrationStatus.OK, CalibrationStatus.DUE_SOON, CalibrationStatus.OVERDUE, CalibrationStatus.PENDING, CalibrationStatus.OUT_OF_SERVICE],
             datasets: [{
-                data: [instrumentStats.ok, instrumentStats.dueSoon, instrumentStats.overdue, instrumentStats.pending],
-                backgroundColor: ['#22c55e', '#f59e0b', '#ef4444', '#64748b'],
+                data: [instrumentStats.ok, instrumentStats.dueSoon, instrumentStats.overdue, instrumentStats.pending, instrumentStats.kullanimDisi],
+                backgroundColor: ['#22c55e', '#f59e0b', '#ef4444', '#64748b', '#a8a29e'],
                 borderColor: document.body.classList.contains('dark') ? '#1e293b' : '#ffffff',
                 borderWidth: 4,
                 hoverBorderColor: document.body.classList.contains('dark') ? '#334155' : '#f1f5f9',
@@ -2638,6 +2645,7 @@ const Dashboard = ({ instrumentsWithStatus: _tumCihazlar, calibrationRecords: _t
                             [CalibrationStatus.DUE_SOON]: { count: instrumentStats.dueSoon, color: 'bg-yellow-500' },
                             [CalibrationStatus.OVERDUE]: { count: instrumentStats.overdue, color: 'bg-red-500' },
                             [CalibrationStatus.PENDING]: { count: instrumentStats.pending, color: 'bg-slate-500' },
+                            ...(instrumentStats.kullanimDisi ? { [CalibrationStatus.OUT_OF_SERVICE]: { count: instrumentStats.kullanimDisi, color: 'bg-stone-400' } } : {}),
                         }).map(([status, { count, color }]) => (
                             e("div", {
                                 key: status,
@@ -3376,6 +3384,10 @@ const InstrumentDetailView = ({ instrument, records, onBack, onEditInstrument, o
                         e("div", { className: "flex justify-between" }, e("span", { className: "font-semibold text-slate-600 dark:text-slate-400" }, "Konum:"), e("span", {}, instrument.location)),
                         e("div", { className: "flex justify-between" }, e("span", { className: "font-semibold text-slate-600 dark:text-slate-400" }, "Departman:"), e("span", {}, instrument.department)),
                         e("div", { className: "flex justify-between" }, e("span", { className: "font-semibold text-slate-600 dark:text-slate-400" }, "Kal. Aralığı:"), e("span", {}, `${instrument.calibrationInterval} Ay`)),
+                        instrument.kullanimDisi && e("div", { className: "p-2 rounded-md bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-200" },
+                            e("span", { className: "font-semibold" }, "Kullanım Dışı: "),
+                            formatDateForDisplay(instrument.kullanimDisiTarihi), " — ", instrument.kullanimDisiSebebi || '',
+                            instrument.kullanimDisiKarar ? " (Karar: " + instrument.kullanimDisiKarar + ")" : ""),
                         e("div", { className: "flex justify-between" }, e("span", { className: "font-semibold text-slate-600 dark:text-slate-400" }, "Son Kalibrasyon:"), e("span", {}, formatDateForDisplay(instrument.lastCalibrationDate))),
                         e("div", { className: "flex justify-between" }, e("span", { className: "font-semibold text-slate-600 dark:text-slate-400" }, "Sıradaki Kalibrasyon:"), e("span", {}, formatDateForDisplay(instrument.nextCalibrationDate)))
                     ),
@@ -4389,6 +4401,22 @@ const InstrumentForm = ({ isOpen, onClose, onSave, instrumentId, instruments, se
                     e(FormInput, { label: "Ölçüm Aralığı", id: "measurementRange", name: "measurementRange", value: formData.measurementRange, onChange: handleChange, placeholder: "örn: 0-100mm" }),
                     e(FormInput, { label: "Çözünürlük", id: "resolution", name: "resolution", value: formData.resolution, onChange: handleChange, placeholder: "örn: 0.01mm" })
                 ),
+                e("div", { className: "pt-4 border-t dark:border-slate-700 space-y-3" },
+                    e("label", { className: "flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-300" },
+                        e("input", { type: "checkbox", checked: !!formData.kullanimDisi,
+                            onChange: ev => setFormData(prev => ({ ...prev, kullanimDisi: ev.target.checked,
+                                kullanimDisiTarihi: ev.target.checked ? (prev.kullanimDisiTarihi || dateKeyOf(new Date())) : prev.kullanimDisiTarihi })) }),
+                        "Kullanım dışı (kalibrasyon takibinden çıkar)"),
+                    formData.kullanimDisi && e("div", { className: "grid grid-cols-1 md:grid-cols-2 gap-4" },
+                        e(FormInput, { label: "Kullanımdan Çıkarılma Tarihi", id: "kullanimDisiTarihi", name: "kullanimDisiTarihi", type: "date", value: formData.kullanimDisiTarihi || '', onChange: handleChange, required: true }),
+                        e(FormInput, { label: "Karar Veren", id: "kullanimDisiKarar", name: "kullanimDisiKarar", value: formData.kullanimDisiKarar || '', onChange: handleChange, placeholder: "örn: Kalite Güvence" }),
+                        e("div", { className: "md:col-span-2" },
+                            e("label", { htmlFor: "kullanimDisiSebebi", className: "block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1" }, "Sebep"),
+                            e("textarea", { id: "kullanimDisiSebebi", name: "kullanimDisiSebebi", rows: 2, required: true, value: formData.kullanimDisiSebebi || '', onChange: handleChange,
+                                placeholder: "örn: Kalibrasyon sonucu uygun değil (sapma -4,33 °C, kabul ±2 °C) — hurdaya ayrıldı",
+                                className: "w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded-md bg-white dark:bg-slate-700 dark:text-slate-200" }))
+                    )
+                ),
                 e("div", { className: "pt-4 border-t dark:border-slate-700" },
                     e("label", { className: "block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2" }, "Cihaz Görseli"),
                     e("div", { className: "flex items-center gap-4" },
@@ -4727,7 +4755,7 @@ const CalibrationForm = ({ isOpen, onClose, onSave, onUpdateRecord, instrumentId
 
 // Surum damgasi: tarayici ESKI kopyayi calistiriyorsa konsolda eski
 // tarih gorunur. "Deploy oldu mu" sorusu boylece tek bakista cevaplanir.
-const KALIB_SURUM = '2026-10-15b · yedekten geri yukleme';
+const KALIB_SURUM = '2026-10-15c · kullanim disi durumu';
 try { console.log('[kalibrasyon] surum: ' + KALIB_SURUM); } catch (_) {}
 
 // Sunucudaki surum ile calisan surumu karsilastirir.
@@ -5725,7 +5753,7 @@ const CalendarModal = ({ isOpen, onNavigate, onClose, instruments, onOpenInstrum
 
         devicesToDisplay.forEach(instrument => {
             addEvent(instrument.lastCalibrationDate, { type: 'last', ...instrument });
-            addEvent(instrument.nextCalibrationDate, { type: 'next', ...instrument });
+            if (!instrument.kullanimDisi) addEvent(instrument.nextCalibrationDate, { type: 'next', ...instrument });
         });
         return events;
     }, [devicesToDisplay]);

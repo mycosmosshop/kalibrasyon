@@ -329,6 +329,7 @@ function _gecikenler(instruments, records, thr) {
   var today = new Date(); today.setHours(0, 0, 0, 0);
   var due = [];
   (instruments || []).forEach(function (inst) {
+    if (inst.kullanimDisi) return;   // kullanımdan çıkarılmış cihaz hatırlatılmaz
     var next = nextCalibrationDate(inst, records);
     if (!next) return;
     var diffDays = Math.round((next - today) / 86400000);
