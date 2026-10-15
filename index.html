@@ -1241,12 +1241,21 @@ return instruments.map(instrument => {
 
     const handleBulkRecordEditSave = (updatedFields) => {
         let affectedInstrumentIds = new Set();
+        const { _yeniHesapla, ...alanlar } = updatedFields;
+        updatedFields = alanlar;
+        let degisenSonuc = 0;
 
         const newRecords = calibrationRecords.map(rec => {
             if (editingRecordIdsForBulk.includes(rec.id)) {
                  const cleanUpdatedFields = Object.fromEntries(
                     Object.entries(updatedFields).filter(([_, v]) => v !== null && v !== undefined && v !== '')
                 );
+                if (_yeniHesapla) {
+                    const inst = instruments.find(i => i.id === rec.instrumentId);
+                    const yeni = inst && getCalibrationResult(
+                        calculateEffectiveDeviation(rec.deviation, rec.uncertainty), inst.permissibleDeviation);
+                    if (yeni && yeni !== rec.result) { cleanUpdatedFields.result = yeni; degisenSonuc++; }
+                }
 
                 if ('recordType' in cleanUpdatedFields && rec.recordType !== cleanUpdatedFields.recordType) {
                     affectedInstrumentIds.add(rec.instrumentId);
@@ -1273,7 +1282,8 @@ return instruments.map(instrument => {
 
         setBulkRecordEditModalOpen(false);
         setEditingRecordIdsForBulk([]);
-        toastService.success(`${editingRecordIdsForBulk.length} kayıt başarıyla güncellendi.`);
+        toastService.success(`${editingRecordIdsForBulk.length} kayıt başarıyla güncellendi.`
+            + (_yeniHesapla ? ' Sonucu değişen: ' + degisenSonuc + '.' : ''));
     };
 
     // Onay penceresinde ne silinecegi SAYIYLA gorunsun; Drive silme geri
@@ -4755,7 +4765,7 @@ const CalibrationForm = ({ isOpen, onClose, onSave, onUpdateRecord, instrumentId
 
 // Surum damgasi: tarayici ESKI kopyayi calistiriyorsa konsolda eski
 // tarih gorunur. "Deploy oldu mu" sorusu boylece tek bakista cevaplanir.
-const KALIB_SURUM = '2026-10-15c · kullanim disi durumu';
+const KALIB_SURUM = '2026-10-15d · sonucu yeniden hesapla';
 try { console.log('[kalibrasyon] surum: ' + KALIB_SURUM); } catch (_) {}
 
 // Sunucudaki surum ile calisan surumu karsilastirir.
@@ -5680,11 +5690,11 @@ const BulkInstrumentEditModal = ({ isOpen, onClose, onSave, instrumentCount, set
 
 const BulkRecordEditModal = ({ isOpen, onClose, onSave, recordCount }) => {
     const [formData, setFormData] = useState({
-        calibratingCompany: '', technician: '', recordType: ''
+        calibratingCompany: '', technician: '', recordType: '', yeniHesapla: false
     });
 
     useEffect(() => {
-        if (isOpen) setFormData({ calibratingCompany: '', technician: '', recordType: '' });
+        if (isOpen) setFormData({ calibratingCompany: '', technician: '', recordType: '', yeniHesapla: false });
     }, [isOpen]);
 
     const handleChange = (e) => {
@@ -5697,6 +5707,7 @@ const BulkRecordEditModal = ({ isOpen, onClose, onSave, recordCount }) => {
         if (formData.calibratingCompany) updates.calibratingCompany = formData.calibratingCompany;
         if (formData.technician) updates.technician = formData.technician;
         if (formData.recordType) updates.recordType = formData.recordType;
+        if (formData.yeniHesapla) updates._yeniHesapla = true;
 
         if (Object.keys(updates).length > 0) onSave(updates);
         else onClose();
@@ -5711,6 +5722,13 @@ const BulkRecordEditModal = ({ isOpen, onClose, onSave, recordCount }) => {
                 e("option", { value: "" }, "Değiştirme"),
                 Object.values(RecordType).map(t => e("option", { key: t, value: t }, t))
             ),
+            // Sonuc kayit girildigi anki sinirla saklanir; sinir sonradan tanimlanir
+            // ya da duzeltilirse ('-' iken girilen kutle kayitlari) eski sonuc kalir.
+            e("label", { className: "flex items-start gap-2 text-sm text-slate-700 dark:text-slate-300" },
+                e("input", { type: "checkbox", className: "mt-0.5", checked: formData.yeniHesapla,
+                    onChange: ev => setFormData(prev => ({ ...prev, yeniHesapla: ev.target.checked })) }),
+                e("span", {}, "Sonucu cihazın ", e("strong", {}, "güncel"), " kabul sınırıyla yeniden hesapla",
+                    e("span", { className: "block text-xs text-slate-500" }, "Toplam sapma (|sapma| + belirsizlik), cihazdaki İzin Verilen Sapma ile karşılaştırılır."))),
             e("div", { className: "flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-700" },
                 e("button", { onClick: onClose, className: "px-4 py-2 rounded-md" }, "İptal"),
                 e("button", { onClick: handleSubmit, className: "px-4 py-2 rounded-md text-white bg-sky-600" }, "Güncelle")
