@@ -7,7 +7,7 @@ const XLSX = require(__dirname + '/xlsx.full.min.js');
 const src = fs.readFileSync('C:/Users/User/Desktop/_erp_deploy/kalibrasyon-clone/index.html', 'utf8');
 // Kaynak dosyalar depoya KONMAZ (depo herkese acik).
 const PL12 = 'C:/Users/User/Desktop/_erp_deploy/kalibrasyon-clone/_yerel_test/pl12.xlsx';
-const Y2026 = 'D:/Yazılım/kalibrasyon-velikoy-2026/Veliköy 2026 kalibrasyon - ERP içe aktarma.xlsx';
+const Y2026 = 'D:/Yazılım/kalibrasyon-velikoy-2026/Veliköy 2026 kalibrasyon - ERP aktarım.xlsx';
 if (!fs.existsSync(PL12) || !fs.existsSync(Y2026)) { console.log('yerel dosyalar yok — test atlandı'); process.exit(0); }
 const CR = { COMPLIANT: 'Uygun', MARGINAL: 'Sınırda Uygun', NON_COMPLIANT: 'Uygun Değil' };
 
