@@ -2436,6 +2436,20 @@ const StatCard = ({ icon, title, value, color, onClick }) => (
     )
 );
 
+// Panel donem suzgeci: kayit tarihi (YYYY-AA-GG ya da GG.AA.YYYY) secilen yilda / son 12 ayda mi.
+// Tarihi okunamayan kayit yalniz "Tumu"nde gorunur.
+function kayitTarihi(t) {
+    const s = String(t || '').trim(), m = /^(\d{1,2})[./](\d{1,2})[./](\d{4})/.exec(s);
+    const d = m ? new Date(+m[3], +m[2] - 1, +m[1]) : new Date(s.slice(0, 10));
+    return isNaN(d.getTime()) ? null : d;
+}
+function kayitDonemde(tarih, donem, bugun = new Date()) {
+    if (!donem) return true;
+    const d = kayitTarihi(tarih);
+    if (!d) return false;
+    if (donem === 'son12') { const s = new Date(bugun); s.setFullYear(s.getFullYear() - 1); return d >= s && d <= bugun; }
+    return String(d.getFullYear()) === donem;
+}
 const Dashboard = ({ instrumentsWithStatus: _tumCihazlar, calibrationRecords: _tumKayitlar, onNavigate, onShowDetail, settings, seciliKonum, setSeciliKonum }) => {
     // KONUM SUZGECI tek yerde: cihazlar konuma gore, kayitlar da o
     // cihazlarin kimliklerine gore suzuluyor. Asagidaki butun kartlar ve
@@ -2451,9 +2465,17 @@ const Dashboard = ({ instrumentsWithStatus: _tumCihazlar, calibrationRecords: _t
         [_tumCihazlar, konum]);
     const _kimlikler = useMemo(() => new Set(instrumentsWithStatus.map(i => i.id)),
         [instrumentsWithStatus]);
-    const calibrationRecords = useMemo(
+    const _konumKayitlari = useMemo(
         () => konum ? _tumKayitlar.filter(r => _kimlikler.has(r.instrumentId)) : _tumKayitlar,
         [_tumKayitlar, _kimlikler, konum]);
+    // DONEM: yalniz kayit grafiklerini ve uygunsuzluk listesini suzer. Cihaz durumu
+    // (tamam / yaklasan / gecikmis) bugune goredir, donemle degismez.
+    const [donem, setDonem] = useLocalStorage('panoDonem', '');
+    const yillar = useMemo(() => [...new Set(_tumKayitlar.map(r => kayitTarihi(r.date)).filter(Boolean)
+        .map(d => String(d.getFullYear())))].sort().reverse(), [_tumKayitlar]);
+    const calibrationRecords = useMemo(
+        () => donem ? _konumKayitlari.filter(r => kayitDonemde(r.date, donem)) : _konumKayitlari,
+        [_konumKayitlari, donem]);
     const instrumentStats = useMemo(() => {
         const total = instrumentsWithStatus.length;
         const ok = instrumentsWithStatus.filter(i => i.status === CalibrationStatus.OK).length;
@@ -2635,6 +2657,16 @@ const Dashboard = ({ instrumentsWithStatus: _tumCihazlar, calibrationRecords: _t
                 },
                     e("option", { value: "" }, "📍 Tüm Konumlar"),
                     konumlar.map(l => e("option", { key: l, value: l }, l))
+                ),
+                e("select", {
+                    value: donem,
+                    onChange: ev => setDonem(ev.target.value),
+                    title: "Kayıt tarihine göre süz — kayıt grafikleri ve uygunsuzluk listesi bu döneme uyar; cihaz durumu bugüne göredir",
+                    className: "px-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded-md bg-white dark:bg-slate-700 dark:text-slate-200"
+                },
+                    e("option", { value: "" }, "📅 Tümü"),
+                    e("option", { value: "son12" }, "Son 12 ay"),
+                    yillar.map(y => e("option", { key: y, value: y }, y))
                 ),
                 e("button", {
                     onClick: () => {
