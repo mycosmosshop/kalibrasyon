@@ -842,6 +842,8 @@ const App = () => {
     // kayitlar ayni degeri kullanir. localStorage'da tutulur ki secim
     // degistirilene kadar (sayfa yenilense de) korunsun.
     const [seciliKonum, setSeciliKonum] = useLocalStorage('seciliKonum', '');
+    // Donem de ortak: panelde secilen Cihazlar ve Tum Kayitlar ekranlarinda da gecerli.
+    const [seciliDonem, setSeciliDonem] = useLocalStorage('panoDonem', '');
 
     // Veri veya ayarlar degisince anlik kopyayi sunucuya yolla (gecikmeli:
     // arka arkaya degisikliklerde tek istek atilsin).
@@ -964,7 +966,18 @@ return instruments.map(instrument => {
             };
         });
     }, [instruments, getInstrumentStatus, settings.reminderDays]);
-    
+
+    // Donem secenekleri: kayit yillari + planlanan (sonraki kalibrasyon) yillari + bu yil ve gelecek yil
+    const donemYillari = useMemo(() => {
+        const y = new Date().getFullYear(), set = new Set([String(y), String(y + 1)]);
+        (calibrationRecords || []).forEach(r => { const d = kayitTarihi(r.date); if (d) set.add(String(d.getFullYear())); });
+        instrumentsWithDetails.forEach(i => { const d = kayitTarihi(i.nextCalibrationDate); if (d) set.add(String(d.getFullYear())); });
+        return [...set].sort().reverse();
+    }, [calibrationRecords, instrumentsWithDetails]);
+    const donemKayitliCihazlar = useMemo(() => new Set((calibrationRecords || [])
+        .filter(r => seciliDonem && kayitDonemde(r.date, seciliDonem)).map(r => r.instrumentId)), [calibrationRecords, seciliDonem]);
+    const donemOrtak = { seciliDonem, setSeciliDonem, donemYillari, donemKayitliCihazlar };
+
     const handleFullBackupExport = useCallback(() => {
         if (instruments.length === 0 && calibrationRecords.length === 0) {
             console.log("Otomatik yedekleme atlandı: Kaydedilecek veri yok.");
@@ -2272,7 +2285,7 @@ return instruments.map(instrument => {
                             onBulkDetachReports: handleBulkDetachReports,
                             onBulkEdit: (ids) => { setEditingRecordIdsForBulk(ids); setBulkRecordEditModalOpen(true); },
                             initialFilter: allCalibrationsInitialFilter,
-                            seciliKonum: seciliKonum, setSeciliKonum: setSeciliKonum,
+                            seciliKonum: seciliKonum, setSeciliKonum: setSeciliKonum, ...donemOrtak,
                             onAttachReports: handleAttachReports
                         });
             case 'instruments':
@@ -2290,7 +2303,7 @@ return instruments.map(instrument => {
                             onSendNotification: handleSendFilteredNotification,
                             initialFilter: instrumentListInitialFilter,
                             onNavigateToRecords: (instrumentId) => handleNavigation('all_calibrations', { searchTerm: instrumentId }),
-                            seciliKonum: seciliKonum, setSeciliKonum: setSeciliKonum
+                            seciliKonum: seciliKonum, setSeciliKonum: setSeciliKonum, ...donemOrtak
                         });
             case 'dashboard':
             default:
@@ -2300,7 +2313,7 @@ return instruments.map(instrument => {
                             onNavigate: handleNavigation, 
                             onShowDetail: handleShowInstrumentDetail,
                             settings: settings,
-                            seciliKonum: seciliKonum, setSeciliKonum: setSeciliKonum
+                            seciliKonum: seciliKonum, setSeciliKonum: setSeciliKonum, ...donemOrtak
                         });
         }
     };
@@ -2450,7 +2463,18 @@ function kayitDonemde(tarih, donem, bugun = new Date()) {
     if (donem === 'son12') { const s = new Date(bugun); s.setFullYear(s.getFullYear() - 1); return d >= s && d <= bugun; }
     return String(d.getFullYear()) === donem;
 }
-const Dashboard = ({ instrumentsWithStatus: _tumCihazlar, calibrationRecords: _tumKayitlar, onNavigate, onShowDetail, settings, seciliKonum, setSeciliKonum }) => {
+// Cihaz donemde mi: o donemde kaydi var ya da sonraki kalibrasyonu o doneme dusuyor.
+// Gecikmis / yaklasan cihaz HER donemde gorunur: bugunku uyari bir suzgecle gizlenmesin.
+function cihazDonemde(inst, donem, kayitliKimlikler) {
+    if (!donem) return true;
+    if (inst.status === CalibrationStatus.OVERDUE || inst.status === CalibrationStatus.DUE_SOON) return true;
+    return kayitliKimlikler.has(inst.id) || kayitDonemde(inst.nextCalibrationDate, donem);
+}
+function donemSecenekleri(yillar) {
+    return [e("option", { key: '', value: "" }, "📅 Tüm Dönemler"), e("option", { key: 'son12', value: "son12" }, "Son 12 ay"),
+        ...yillar.map(y => e("option", { key: y, value: y }, y))];
+}
+const Dashboard = ({ instrumentsWithStatus: _tumCihazlar, calibrationRecords: _tumKayitlar, onNavigate, onShowDetail, settings, seciliKonum, setSeciliKonum, seciliDonem, setSeciliDonem, donemYillari, donemKayitliCihazlar }) => {
     // KONUM SUZGECI tek yerde: cihazlar konuma gore, kayitlar da o
     // cihazlarin kimliklerine gore suzuluyor. Asagidaki butun kartlar ve
     // grafikler bu ikisinden beslendigi icin hepsi birden takip ediyor.
@@ -2460,19 +2484,19 @@ const Dashboard = ({ instrumentsWithStatus: _tumCihazlar, calibrationRecords: _t
     const setKonum = setSeciliKonum;
     const konumlar = useMemo(() => [...new Set(_tumCihazlar.map(i => i.location).filter(Boolean))]
         .sort((a, b) => a.localeCompare(b, 'tr')), [_tumCihazlar]);
-    const instrumentsWithStatus = useMemo(
+    const donem = seciliDonem || '';
+    const _konumCihazlari = useMemo(
         () => konum ? _tumCihazlar.filter(i => i.location === konum) : _tumCihazlar,
         [_tumCihazlar, konum]);
+    const instrumentsWithStatus = useMemo(
+        () => donem ? _konumCihazlari.filter(i => cihazDonemde(i, donem, donemKayitliCihazlar)) : _konumCihazlari,
+        [_konumCihazlari, donem, donemKayitliCihazlar]);
     const _kimlikler = useMemo(() => new Set(instrumentsWithStatus.map(i => i.id)),
         [instrumentsWithStatus]);
     const _konumKayitlari = useMemo(
         () => konum ? _tumKayitlar.filter(r => _kimlikler.has(r.instrumentId)) : _tumKayitlar,
         [_tumKayitlar, _kimlikler, konum]);
-    // DONEM: yalniz kayit grafiklerini ve uygunsuzluk listesini suzer. Cihaz durumu
-    // (tamam / yaklasan / gecikmis) bugune goredir, donemle degismez.
-    const [donem, setDonem] = useLocalStorage('panoDonem', '');
-    const yillar = useMemo(() => [...new Set(_tumKayitlar.map(r => kayitTarihi(r.date)).filter(Boolean)
-        .map(d => String(d.getFullYear())))].sort().reverse(), [_tumKayitlar]);
+    // DONEM: kayitlar tarihine, cihazlar o donemdeki kayit / planli kalibrasyona gore suzulur
     const calibrationRecords = useMemo(
         () => donem ? _konumKayitlari.filter(r => kayitDonemde(r.date, donem)) : _konumKayitlari,
         [_konumKayitlari, donem]);
@@ -2660,13 +2684,11 @@ const Dashboard = ({ instrumentsWithStatus: _tumCihazlar, calibrationRecords: _t
                 ),
                 e("select", {
                     value: donem,
-                    onChange: ev => setDonem(ev.target.value),
-                    title: "Kayıt tarihine göre süz — kayıt grafikleri ve uygunsuzluk listesi bu döneme uyar; cihaz durumu bugüne göredir",
+                    onChange: ev => setSeciliDonem(ev.target.value),
+                    title: "Döneme göre süz — kayıtlar tarihine, cihazlar o dönemdeki kayıt ya da planlı kalibrasyona göre. Gecikmiş/yaklaşan cihaz her dönemde görünür. Cihazlar ve Tüm Kayıtlar da bu seçime uyar",
                     className: "px-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded-md bg-white dark:bg-slate-700 dark:text-slate-200"
                 },
-                    e("option", { value: "" }, "📅 Tümü"),
-                    e("option", { value: "son12" }, "Son 12 ay"),
-                    yillar.map(y => e("option", { key: y, value: y }, y))
+                    donemSecenekleri(donemYillari)
                 ),
                 e("button", {
                     onClick: () => {
@@ -2994,7 +3016,7 @@ const QuickFilterButton = ({ label, count, filterStatus, activeStatus, setFilter
     )
 );
 
-const InstrumentList = ({ instruments, onAddInstrument, onEditInstrument, onDeleteInstrument, onShowDetail, onAddRecord, onDataImport, onExport, onBulkDelete, onBulkEdit, onSendNotification, onNavigateToRecords, initialFilter, seciliKonum, setSeciliKonum }) => {
+const InstrumentList = ({ instruments, onAddInstrument, onEditInstrument, onDeleteInstrument, onShowDetail, onAddRecord, onDataImport, onExport, onBulkDelete, onBulkEdit, onSendNotification, onNavigateToRecords, initialFilter, seciliKonum, setSeciliKonum, seciliDonem, setSeciliDonem, donemYillari, donemKayitliCihazlar }) => {
     const [filters, setFilters] = useState({
         searchTerm: '',
         status: '',
@@ -3051,7 +3073,8 @@ const InstrumentList = ({ instruments, onAddInstrument, onEditInstrument, onDele
                     .some(v => String(v ?? '').toLowerCase().includes(searchTermLower))) &&
                 (filters.status === '' || instrument.status === filters.status) &&
                 (filters.department === '' || instrument.department === filters.department) &&
-                (filters.location === '' || instrument.location === filters.location)
+                (filters.location === '' || instrument.location === filters.location) &&
+                cihazDonemde(instrument, seciliDonem, donemKayitliCihazlar)
             );
         });
 
@@ -3114,7 +3137,7 @@ const InstrumentList = ({ instruments, onAddInstrument, onEditInstrument, onDele
         }
 
         return filtered;
-    }, [instruments, filters, sortConfig]);
+    }, [instruments, filters, sortConfig, seciliDonem, donemKayitliCihazlar]);
 
     const criticalFilteredInstruments = useMemo(() => {
         return filteredInstruments.filter(instrument =>
@@ -3236,6 +3259,14 @@ const InstrumentList = ({ instruments, onAddInstrument, onEditInstrument, onDele
                         e("option", { value: "" }, "Tüm Konumlar"),
                         locations.map(l => e("option", { key: l, value: l }, l))
                     ),
+                    e(FormSelect, {
+                        label: "Dönem",
+                        id: "donem",
+                        value: seciliDonem || '',
+                        // Ortak secim: panel ve Tum Kayitlar ile ayni
+                        onChange: (ev) => setSeciliDonem(ev.target.value),
+                        title: "O dönemde kaydı ya da planlı kalibrasyonu olan cihazlar; gecikmiş/yaklaşan her dönemde görünür",
+                    }, donemSecenekleri(donemYillari)),
                      e(FormSelect, {
                         label: "Durum",
                         id: "status",
@@ -4056,7 +4087,7 @@ const TopluRaporModal = ({ isOpen, onClose, records, instruments, onAttachReport
     );
 };
 
-const AllCalibrationsView = ({ records, instruments, onEditRecord, onDeleteRecord, onBulkDelete, onBulkEdit, onBulkDetachReports, initialFilter , seciliKonum, setSeciliKonum, onAttachReports }) => {
+const AllCalibrationsView = ({ records, instruments, onEditRecord, onDeleteRecord, onBulkDelete, onBulkEdit, onBulkDetachReports, initialFilter , seciliKonum, setSeciliKonum, onAttachReports, seciliDonem, setSeciliDonem, donemYillari }) => {
     const [topluRaporAcik, setTopluRaporAcik] = useState(false);
     const openReport = (reportFile) => {
         if (!reportFile) return;
@@ -4147,6 +4178,11 @@ const AllCalibrationsView = ({ records, instruments, onEditRecord, onDeleteRecor
             filtered = filtered.filter(r => r.instrumentLocation === filters.location);
         }
 
+        // Ortak donem (panel / Cihazlar ile ayni secim): kayit tarihine gore
+        if (seciliDonem) {
+            filtered = filtered.filter(r => kayitDonemde(r.date, seciliDonem));
+        }
+
         if (sortConfig !== null) {
             filtered.sort((a, b) => {
                 const key = sortConfig.key;
@@ -4182,7 +4218,7 @@ const AllCalibrationsView = ({ records, instruments, onEditRecord, onDeleteRecor
         }
 
         return filtered;
-    }, [records, instruments, filters, sortConfig]);
+    }, [records, instruments, filters, sortConfig, seciliDonem]);
 
     const requestSort = (key) => {
         let direction = 'ascending';
@@ -4240,6 +4276,14 @@ const AllCalibrationsView = ({ records, instruments, onEditRecord, onDeleteRecor
                             .sort((a, b) => a.localeCompare(b, 'tr'))
                             .map(l => e("option", { key: l, value: l }, l))
                     ),
+                    e(FormSelect, {
+                        name: "donem",
+                        value: seciliDonem || '',
+                        // Ortak secim: panel ve Cihazlar ile ayni
+                        onChange: (ev) => setSeciliDonem(ev.target.value),
+                        title: "Kayıt tarihine göre süz",
+                        className: "py-2"
+                    }, donemSecenekleri(donemYillari)),
                     e(FormSelect, {
                         name: "recordType",
                         value: filters.recordType,
