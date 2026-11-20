@@ -4,18 +4,18 @@ const fs = require('fs'), assert = require('assert');
 const KOD = fs.readFileSync(__dirname + '/kalibrasyon-sync.js', 'utf8');
 const bekle = (ms) => new Promise(r => setTimeout(r, ms));
 
-async function senaryo({ okuma, yerel, onceYaz }) {
+async function senaryo({ okuma, yerel, onceYaz, bekleme }) {
   const depo = Object.assign({}, yerel), oturum = {}, yazilan = [];
-  let yenilendi = 0;
+  let yenilendi = 0, tazele = 0, sira = 0;
   const localStorage = {
     get length() { return Object.keys(depo).length; }, key: (i) => Object.keys(depo)[i],
     getItem: (k) => (k in depo ? depo[k] : null), setItem: (k, v) => { depo[k] = String(v); }, removeItem: (k) => { delete depo[k]; },
   };
   const sessionStorage = { getItem: (k) => oturum[k] || null, setItem: (k, v) => { oturum[k] = v; }, removeItem: (k) => { delete oturum[k]; } };
   const sb = {
-    auth: { getSession: async () => ({ data: { session: { user: { id: 'u1' } } } }) },
+    auth: { getSession: async () => ({ data: { session: { user: { id: 'u1' } } } }), refreshSession: async () => { tazele++; return { data: { session: { user: { id: 'u1' } } } }; } },
     from: () => ({
-      select: () => ({ eq: () => ({ maybeSingle: async () => { await bekle(1700); return okuma; } }) }),   // okuma 1,7 sn sürsün
+      select: () => ({ eq: () => ({ maybeSingle: async () => { await bekle(1700); return Array.isArray(okuma) ? okuma[Math.min(sira++, okuma.length - 1)] : okuma; } }) }),   // okuma 1,7 sn; dizi = sırayla cevaplar
       upsert: (x) => { yazilan.push(x); return Promise.resolve({ error: null }); },
     }),
     channel: () => ({ on() { return this; }, subscribe() { return this; } }),
@@ -26,8 +26,8 @@ async function senaryo({ okuma, yerel, onceYaz }) {
   new Function('window', 'localStorage', 'sessionStorage', 'document', 'location', 'console', KOD)
     (window, localStorage, sessionStorage, document, location, { log() {}, warn() {} });
   if (onceYaz) localStorage.setItem('instruments', onceYaz);    // React açılışta eski durumu yazar
-  await bekle(2500);
-  return { yazilan, yenilendi, depo, ls: localStorage };
+  await bekle(bekleme || 2500);
+  return { yazilan, yenilendi, depo, ls: localStorage, tazele };
 }
 
 (async () => {
@@ -37,6 +37,11 @@ async function senaryo({ okuma, yerel, onceYaz }) {
   // 1) bulut okunamadı -> hiçbir şey yazılmaz
   let s = await senaryo({ okuma: { data: null, error: { message: 'JWT expired' } }, yerel: ESKI, onceYaz: '["eski"]' });
   assert.strictEqual(s.yazilan.length, 0, 'okuma hatasında buluta yazıldı');
+
+  // 1b) ilk okuma hata, oturum tazelenince okunur -> bulut uygulanır, eski veri yazılmaz
+  s = await senaryo({ okuma: [{ data: null, error: { message: 'JWT expired' } }, { data: { data: YENI }, error: null }], yerel: ESKI, onceYaz: '["eski"]', bekleme: 6000 });
+  assert.strictEqual(s.yazilan.length, 0); assert.ok(s.tazele >= 1, 'oturum tazelenmedi');
+  assert.strictEqual(s.depo.instruments, '["yeni"]'); assert.strictEqual(s.yenilendi, 1);
 
   // 2) bulut farklı, tarayıcıda eski veri -> eski veri yazılmaz, bulut uygulanır, sayfa yenilenir
   s = await senaryo({ okuma: { data: { data: YENI }, error: null }, yerel: ESKI, onceYaz: '["eski"]' });
@@ -54,5 +59,5 @@ async function senaryo({ okuma, yerel, onceYaz }) {
   s = await senaryo({ okuma: { data: null, error: null }, yerel: YENI });
   assert.strictEqual(s.yazilan.length, 1, 'ilk yükleme yapılmadı');
 
-  console.log('test_senkron_guvenlik: 4 senaryo geçti');
+  console.log('test_senkron_guvenlik: 5 senaryo geçti');
 })().catch(e => { console.error('BAŞARISIZ:', e.message); process.exit(1); });

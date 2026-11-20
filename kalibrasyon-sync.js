@@ -47,6 +47,12 @@
       if(!ses){ console.log('[kalib-sync] ERP oturumu yok — yerel mod'); return; }
       var uid=ses.user.id;
       var r=await sb.from('supplier_sync').select('data').eq('id',ROW_ID).maybeSingle();
+      for(var dene=0; r.error && dene<3; dene++){   // süresi dolmuş oturum: tazele ve yeniden oku (20.11.2026)
+        console.warn('[kalib-sync] bulut okunamadı, oturum tazelenip yeniden deneniyor:', r.error.message);
+        try{ var t=await sb.auth.refreshSession(); if(t.data && t.data.session) uid=t.data.session.user.id; }catch(_){}
+        await new Promise(function(res){ setTimeout(res, 1500*(dene+1)); });
+        r=await sb.from('supplier_sync').select('data').eq('id',ROW_ID).maybeSingle();
+      }
       if(r.error){ console.warn('[kalib-sync] bulut okunamadı, yerel mod (buluta yazılmaz):', r.error.message); return; }
       clearTimeout(_pushTimer);             // okuma bitene kadar biriken (eski) push gönderilmez
       var remote=(r.data && r.data.data) ? r.data.data : null;
