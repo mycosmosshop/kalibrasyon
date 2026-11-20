@@ -19,13 +19,28 @@
 
   // localStorage'ı sarmala (uygulama koduna dokunmadan)
   var _origSet=localStorage.setItem.bind(localStorage);
+  var _origGet=localStorage.getItem.bind(localStorage);
   var _origRem=localStorage.removeItem.bind(localStorage);
-  localStorage.setItem=function(k,v){ _origSet(k,v); try{ if(isSynced(k)) schedulePush(); }catch(e){} };
-  localStorage.removeItem=function(k){ _origRem(k); try{ if(isSynced(k)) schedulePush(); }catch(e){} };
+  // Tarayıcı hafızası dolu (QuotaExceeded; ERP modülleri aynı origin'in 5 MB'ını paylaşır — 20.11.2026 Edge):
+  // önce eski kopya silinip yeniden yazılır, yine sığmazsa değer SEKME hafızasında (sessionStorage, ayrı kota) tutulur.
+  // Başka modüllerin anahtarlarına dokunulmaz.
+  var TASAN='_kalibTasan_';
+  function oku(k){ try{ var t=sessionStorage.getItem(TASAN+k); if(t!==null) return t; }catch(e){} return _origGet(k); }
+  function yaz(k,v){
+    try{ _origSet(k,v); try{ sessionStorage.removeItem(TASAN+k); }catch(_){} return; }
+    catch(e){ if(!/quota/i.test(String(e && (e.name+' '+e.message)))) throw e; }
+    try{ _origRem(k); _origSet(k,v); try{ sessionStorage.removeItem(TASAN+k); }catch(_){} return; }catch(e2){}
+    sessionStorage.setItem(TASAN+k, v);
+    console.warn('[kalib-sync] tarayıcı hafızası dolu: "'+k+'" bu sekmenin hafızasında tutuluyor');
+  }
+  localStorage.getItem=function(k){ return isSynced(k) ? oku(k) : _origGet(k); };
+  localStorage.setItem=function(k,v){ if(isSynced(k)) yaz(k,String(v)); else _origSet(k,v); try{ if(isSynced(k)) schedulePush(); }catch(e){} };
+  localStorage.removeItem=function(k){ _origRem(k); try{ if(isSynced(k)){ sessionStorage.removeItem(TASAN+k); schedulePush(); } }catch(e){} };
 
-  function snapshot(){ var o={}; for(var i=0;i<localStorage.length;i++){ var k=localStorage.key(i); if(isSynced(k)) o[k]=localStorage.getItem(k); } return o; }
+  // snapshot anahtar listesinden okunur (sekme hafızasına taşan değer de dahil) — eksik anahtarla buluta yazılmaz
+  function snapshot(){ var o={}; KEYS.forEach(function(k){ var v=oku(k); if(v!==null) o[k]=v; }); return o; }
   function applyRemote(data){ if(!data) return false; _applying=true; var ch=false;
-    try{ Object.keys(data).forEach(function(k){ if(isSynced(k) && localStorage.getItem(k)!==data[k]){ _origSet(k, data[k]); ch=true; } }); }
+    try{ Object.keys(data).forEach(function(k){ if(isSynced(k) && oku(k)!==data[k]){ yaz(k, data[k]); ch=true; } }); }
     finally{ _applying=false; } return ch; }
   function pushNow(){ if(_applying||!_uid||!_hazir) return;
     sb.from('supplier_sync').upsert({ id:ROW_ID, data:snapshot(), updated_at:new Date().toISOString(), updated_by:_uid })
