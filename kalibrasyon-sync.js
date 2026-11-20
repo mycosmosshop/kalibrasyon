@@ -12,7 +12,10 @@
 
   if(!(window.supabase && window.supabase.createClient)){ console.warn('[kalib-sync] supabase-js yok'); return; }
   var sb=window.supabase.createClient(SUPA_URL, SUPA_KEY, {auth:{persistSession:true, autoRefreshToken:true}});
-  var _applying=false, _lastEdit=0, _uid=null, _pushTimer=null;
+  // _hazir: buluttaki veri bu sayfaya uygulanmadan (ya da okunamazken) buluta YAZILMAZ.
+  // 20.11.2026: okuma hatası "uzak boş" sayılıp tarayıcıdaki ESKİ veri buluta yazılıyordu;
+  // ayrıca _uid okumadan önce atandığı için 1,5 sn'lik bekleyen push eski veriyi gönderebiliyordu.
+  var _applying=false, _lastEdit=0, _uid=null, _pushTimer=null, _hazir=false;
 
   // localStorage'ı sarmala (uygulama koduna dokunmadan)
   var _origSet=localStorage.setItem.bind(localStorage);
@@ -24,7 +27,7 @@
   function applyRemote(data){ if(!data) return false; _applying=true; var ch=false;
     try{ Object.keys(data).forEach(function(k){ if(isSynced(k) && localStorage.getItem(k)!==data[k]){ _origSet(k, data[k]); ch=true; } }); }
     finally{ _applying=false; } return ch; }
-  function pushNow(){ if(_applying||!_uid) return;
+  function pushNow(){ if(_applying||!_uid||!_hazir) return;
     sb.from('supplier_sync').upsert({ id:ROW_ID, data:snapshot(), updated_at:new Date().toISOString(), updated_by:_uid })
       .then(function(r){ if(r.error) console.warn('[kalib-sync] push', r.error.message); else console.log('[kalib-sync] kaydedildi'); }); }
   function schedulePush(){ if(_applying) return; _lastEdit=Date.now(); clearTimeout(_pushTimer); _pushTimer=setTimeout(pushNow, 1500); }
@@ -33,8 +36,8 @@
     sb.channel('kalib_sync_rt')
       .on('postgres_changes', {event:'*', schema:'public', table:'supplier_sync', filter:'id=eq.'+ROW_ID}, function(p){
         var row=p.new; if(!row||!row.data||row.updated_by===_uid) return;
-        applyRemote(row.data);
-        if(Date.now()-_lastEdit > 8000){ location.reload(); }
+        clearTimeout(_pushTimer);                // bekleyen (eski) push iptal
+        if(applyRemote(row.data)){ _hazir=false; location.reload(); }   // React bellekteki eski veriyi yazmasın
       }).subscribe();
   }
 
@@ -42,16 +45,20 @@
     try{
       var ses=(await sb.auth.getSession()).data.session;
       if(!ses){ console.log('[kalib-sync] ERP oturumu yok — yerel mod'); return; }
-      _uid=ses.user.id;
+      var uid=ses.user.id;
       var r=await sb.from('supplier_sync').select('data').eq('id',ROW_ID).maybeSingle();
+      if(r.error){ console.warn('[kalib-sync] bulut okunamadı, yerel mod (buluta yazılmaz):', r.error.message); return; }
+      clearTimeout(_pushTimer);             // okuma bitene kadar biriken (eski) push gönderilmez
       var remote=(r.data && r.data.data) ? r.data.data : null;
       if(remote && Object.keys(remote).length){
         if(applyRemote(remote)){            // yerelden farklıysa uygula + bir kez yenile (React taze okusun)
           if(!sessionStorage.getItem('_kalibSyncReloaded')){ sessionStorage.setItem('_kalibSyncReloaded','1'); location.reload(); return; }
+          console.warn('[kalib-sync] yenilemeye rağmen veri farklı — yerel mod (buluta yazılmaz)'); return;
         }
-      } else {
-        pushNow();                          // uzak boş → mevcut yerel veriyi ilk kez yükle (migration)
-      }
+        _uid=uid; _hazir=true;
+      } else if(r.data===null){
+        _uid=uid; _hazir=true; pushNow();   // satır gerçekten yok → mevcut yerel veriyi ilk kez yükle (migration)
+      } else { console.warn('[kalib-sync] bulut satırı boş veri taşıyor — yerel mod'); return; }
       sessionStorage.removeItem('_kalibSyncReloaded');
       subscribe();
       console.log('[kalib-sync] Kalibrasyon canlı senkron aktif.');
