@@ -2551,8 +2551,7 @@ const Dashboard = ({ instrumentsWithStatus: _tumCihazlar, calibrationRecords: _t
     const attentionItems = useMemo(() => {
         return instrumentsWithStatus
             .filter(i => i.status === CalibrationStatus.OVERDUE || i.status === CalibrationStatus.DUE_SOON)
-            .sort((a, b) => new Date(a.nextCalibrationDate).getTime() - new Date(b.nextCalibrationDate).getTime())
-            .slice(0, 10);
+            .sort((a, b) => new Date(a.nextCalibrationDate).getTime() - new Date(b.nextCalibrationDate).getTime());
     }, [instrumentsWithStatus]);
 
     const deviationItems = useMemo(() => {
@@ -2715,7 +2714,8 @@ const Dashboard = ({ instrumentsWithStatus: _tumCihazlar, calibrationRecords: _t
                 ),
                 e("button", {
                     onClick: () => {
-                        const body = `Merhaba,\n\nKalibrasyonu gecikmiş veya yaklaşan cihazlar:\n${[...attentionItems].map(i => `- ${i.name} (SN: ${i.serialNumber}) - Sonraki Tarih: ${formatDateForDisplay(i.nextCalibrationDate)}`).join('\n')}`;
+                        const body = `Merhaba,\n\nKalibrasyonu gecikmiş veya yaklaşan cihazlar:\n${attentionItems.slice(0, 10).map(i => `- ${i.id} ${i.name} (SN: ${i.serialNumber}, ${i.location || '-'}) - Sonraki Tarih: ${formatDateForDisplay(i.nextCalibrationDate)}`).join('\n')}`
+                            + (attentionItems.length > 10 ? `\n… ve ${attentionItems.length - 10} cihaz daha (Kalibrasyon > Gösterge Paneli)` : '');   // mailto uzunluk siniri
                         window.location.href = `mailto:${settings.notificationEmail || ''}?subject=Kalibrasyon Hatırlatması&body=${encodeURIComponent(body)}`;
                     },
                     className: "flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-sky-600 rounded-md hover:bg-sky-700 transition-colors",
@@ -2818,15 +2818,17 @@ const Dashboard = ({ instrumentsWithStatus: _tumCihazlar, calibrationRecords: _t
                         e("table", { className: "w-full text-left" },
                             e("thead", null,
                                 e("tr", { className: "border-b dark:border-slate-700" },
-                                    e("th", { className: "p-3" }, "Cihaz Adı"),
-                                    e("th", { className: "p-3" }, "Sıradaki Kal. Tarihi"),
+                                    ["Cihaz ID", "Cihaz Adı", "Seri No", "Konum", "Sıradaki Kal. Tarihi"].map(b => e("th", { key: b, className: "p-3" }, b)),
                                     e("th", { className: "p-3" }, "Durum")
                                 )
                             ),
                             e("tbody", null,
                                 attentionItems.map(item => (
                                     e("tr", { key: item.id, onClick: () => onShowDetail(item.id), className: "hover:bg-slate-50 dark:hover:bg-slate-700/50 cursor-pointer" },
+                                        e("td", { className: "p-3" }, item.id),
                                         e("td", { className: "p-3 font-medium" }, item.name),
+                                        e("td", { className: "p-3" }, item.serialNumber || '—'),
+                                        e("td", { className: "p-3" }, item.location || '—'),
                                         e("td", { className: "p-3" }, formatDateForDisplay(item.nextCalibrationDate)),
                                         e("td", { className: "p-3" }, e(StatusBadge, { status: item.status }))
                                     )
@@ -6112,7 +6114,7 @@ root.render(e(App));
   <!-- App Version Badge -->
   <div id="app-version" class="fixed bottom-3 right-3 z-40 pointer-events-none">
     <span class="inline-block px-2 py-1 text-xs rounded border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 shadow-sm">
-      Caltrack ver10.22.3
+      Caltrack ver10.22.4
     </span>
   </div>
 
