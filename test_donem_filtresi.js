@@ -2,7 +2,7 @@
 const fs = require('fs'), assert = require('assert');
 const src = fs.readFileSync('C:/Users/User/Desktop/_erp_deploy/kalibrasyon-clone/index.html', 'utf8');
 const al = ad => { const i = src.indexOf('function ' + ad + '('); return src.slice(i, src.indexOf('\n}', i) + 2); };
-const F = new Function('CalibrationStatus', al('kayitTarihi') + '\n' + al('kayitDonemde') + '\n' + al('cihazDonemde') + '\nreturn { kayitTarihi, kayitDonemde, cihazDonemde };')({ OVERDUE: 'Gecikmiş', DUE_SOON: 'Yaklaşıyor', OK: 'Tamam' });
+const F = new Function('CalibrationStatus', al('kayitTarihi') + '\n' + al('kayitDonemde') + '\n' + al('cihazDonemde') + '\nreturn { kayitTarihi, kayitDonemde, cihazDonemde };')({ OVERDUE: 'Gecikmiş', DUE_SOON: 'Yaklaşıyor', OK: 'Tamam', PENDING: 'Beklemede' });
 const bugun = new Date(2026, 10, 12);
 assert.strictEqual(F.kayitDonemde('2025-03-01', ''), true, 'Tümü');
 assert.strictEqual(F.kayitDonemde('2025-03-01', '2025'), true); assert.strictEqual(F.kayitDonemde('2025-03-01', '2026'), false);
@@ -21,6 +21,7 @@ assert.strictEqual(F.cihazDonemde({ id: 'A2', status: 'Tamam', nextCalibrationDa
 assert.strictEqual(F.cihazDonemde({ id: 'A2', status: 'Tamam', nextCalibrationDate: '2027-03-01' }, '2025', kayitli), false);
 assert.strictEqual(F.cihazDonemde({ id: 'A3', status: 'Gecikmiş', nextCalibrationDate: '2024-01-01' }, '2027', kayitli), true, 'gecikmiş gizlenmez');
 assert.strictEqual(F.cihazDonemde({ id: 'A4', status: 'Tamam', nextCalibrationDate: 'N/A' }, '2025', kayitli), false);
+assert.strictEqual(F.cihazDonemde({ id: 'A5', status: 'Beklemede', nextCalibrationDate: 'N/A' }, '2026', kayitli), true, 'kalibre edilmemiş cihaz gizlenmez');
 assert.strictEqual(F.cihazDonemde({ id: 'A4', status: 'Tamam' }, '', kayitli), true, 'Tüm Dönemler');
 // Ortak seçim: tek durum App'te, üç ekrana gidiyor; yıllara bu yıl + gelecek yıl hep eklenir
 assert.strictEqual((src.match(/useLocalStorage\('panoDonem', ''\)/g) || []).length, 1, 'tek ortak durum');
