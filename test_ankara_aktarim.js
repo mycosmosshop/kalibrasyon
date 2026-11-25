@@ -15,7 +15,7 @@ function referanslariAta(instruments, calibrationRecords) {
     const setCalibrationRecords = f => { sonuc = f(calibrationRecords); };
     new Function('instruments', 'calibrationRecords', 'setCalibrationRecords', 'RecordType',
         'Map', 'String', 'Number',
-        govde)(instruments, calibrationRecords, setCalibrationRecords, RecordType, Map, String, Number);
+        src.match(/function konumListesi.*/)[0] + ';' + govde)(instruments, calibrationRecords, setCalibrationRecords, RecordType, Map, String, Number);
     return sonuc;
 }
 

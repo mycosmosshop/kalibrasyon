@@ -30,7 +30,7 @@ function gercek(ad) {
 }
 const ortamOrtak = {
     _katla: gercek('_katla'), _excelGunu: gercek('_excelGunu'), _rprAnahtar: gercek('_rprAnahtar'),
-    dateKeyOf: gercek('dateKeyOf'), calculateEffectiveDeviation: gercek('calculateEffectiveDeviation'),
+    konumListesi: new Function(src.match(/function konumListesi.*/)[0] + ';return konumListesi;')(), dateKeyOf: gercek('dateKeyOf'), calculateEffectiveDeviation: gercek('calculateEffectiveDeviation'),
     getCalibrationResult: gercek('getCalibrationResult'), generateSequentialId: gercek('generateSequentialId'),
     RecordType: { CALIBRATION: 'Kalibrasyon', VERIFICATION: 'Doğrulama' }, CalibrationResult: CR,
     XLSX: { SSF: { parse_date_code: () => null } },

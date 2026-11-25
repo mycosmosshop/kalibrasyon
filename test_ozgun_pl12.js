@@ -43,7 +43,7 @@ function aktar(mevcut, kayitlar, konumlar) {
             success: t => out.ok.push(t), warning: () => {} },
         RecordType: { CALIBRATION: 'Kalibrasyon', VERIFICATION: 'Doğrulama' },
         CalibrationResult: CR,
-        dateKeyOf: gercek('dateKeyOf'),
+        konumListesi: new Function(src.match(/function konumListesi.*/)[0] + ';return konumListesi;')(), dateKeyOf: gercek('dateKeyOf'),
         _excelGunu: new Function(src.match(/const _excelGunu = [\s\S]*?;\r?\n/)[0] + 'return _excelGunu;')(),
         calculateEffectiveDeviation: gercek('calculateEffectiveDeviation'),
         getCalibrationResult: gercek('getCalibrationResult'),

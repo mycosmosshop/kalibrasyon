@@ -820,8 +820,7 @@ const App = () => {
 
         const konumaGore = new Map();
         cetveller.forEach(i => {
-            const k = buyuk(i.location);
-            if (!konumaGore.has(k)) konumaGore.set(k, i);
+            konumListesi(i.location).map(buyuk).forEach(k => { if (!konumaGore.has(k)) konumaGore.set(k, i); });
         });
         const varsayilan = cetveller.find(i => String(i.serialNumber).trim() === '20244561') || cetveller[0];
 
@@ -833,7 +832,7 @@ const App = () => {
         setCalibrationRecords(prev => prev.map(r => {
             if (r.recordType !== RecordType.VERIFICATION || r.referenceInstrumentId) return r;
             const cihaz = instruments.find(i => i.id === r.instrumentId);
-            const ref = konumaGore.get(buyuk(cihaz && cihaz.location)) || varsayilan;
+            const ref = konumaGore.get(buyuk(konumListesi(cihaz && cihaz.location)[0])) || varsayilan;
             return ref ? { ...r, referenceInstrumentId: ref.id } : r;
         }));
     }, [instruments]);
@@ -1605,7 +1604,7 @@ return instruments.map(instrument => {
             // bu satir kendi tesisinde ayri cihaz olur (Veliköy listesi
             // Ankara/Çerkezköy cihazini ezmesin).
             if (existingInstrument && rowData.location && existingInstrument.location
-                    && _katla(existingInstrument.location) !== _katla(rowData.location)) {
+                    && !konumListesi(existingInstrument.location).map(_katla).includes(_katla(rowData.location))) {
                 console.warn('[ice aktarma] seri ' + serial + ' baska tesiste ('
                     + existingInstrument.location + '), ' + rowData.location + ' icin ayri cihaz acildi');
                 existingInstrument = null;
@@ -1619,7 +1618,7 @@ return instruments.map(instrument => {
                 const kayit = (calibrationRecords || []).find(r => _rprAnahtar(r.reportNumber) === rn);
                 const cihaz = kayit && instruments.find(i => i.id === kayit.instrumentId);
                 if (!cihaz || (rowData.location && cihaz.location
-                        && _katla(cihaz.location) !== _katla(rowData.location))) {
+                        && !konumListesi(cihaz.location).map(_katla).includes(_katla(rowData.location)))) {
                     bulunmayanOnceki.push(String(oncekiRapor).trim());
                     return;
                 }
@@ -1632,12 +1631,14 @@ return instruments.map(instrument => {
                 const kayit = rn.length >= 6 && (calibrationRecords || []).find(r => _rprAnahtar(r.reportNumber) === rn);
                 const cihaz = kayit && instruments.find(i => i.id === kayit.instrumentId);
                 if (cihaz && (!rowData.location || !cihaz.location
-                        || _katla(cihaz.location) === _katla(rowData.location))) existingInstrument = cihaz;
+                        || konumListesi(cihaz.location).map(_katla).includes(_katla(rowData.location)))) existingInstrument = cihaz;
             }
 
             const instrumentDataFromRow = Object.fromEntries(
                 Object.entries(restOfRowData).filter(([_, v]) => v !== undefined && v !== null && String(v).trim() !== '')
             );
+            // Ortak cihazin (iki tesis) konumu tek tesislik listeyle ezilmez
+            if (existingInstrument && konumListesi(existingInstrument.location).length > 1) delete instrumentDataFromRow.location;
             if ('serialNumber' in instrumentDataFromRow) instrumentDataFromRow.serialNumber = String(instrumentDataFromRow.serialNumber);
 
             if (existingInstrument && yalnizSM) {
@@ -2449,6 +2450,13 @@ const StatCard = ({ icon, title, value, color, onClick }) => (
     )
 );
 
+// Bir cihaz birden cok tesiste kullanilabilir: location 'Hendek, Veliköy'. Tek kayit kalir,
+// iki tesisin suzgecinde de gorunur (25.11.2026, SF00035 celik cetvel).
+function konumListesi(v) { return String(v == null ? '' : v).split(',').map(s => s.trim()).filter(Boolean); }
+function konumdaMi(v, konum) { return konumListesi(v).indexOf(konum) >= 0; }
+function konumSecenekleri(cihazlar) {
+    return [...new Set((cihazlar || []).flatMap(i => konumListesi(i.location)))].sort((a, b) => a.localeCompare(b, 'tr'));
+}
 // Panel donem suzgeci: kayit tarihi (YYYY-AA-GG ya da GG.AA.YYYY) secilen yilda / son 12 ayda mi.
 // Tarihi okunamayan kayit yalniz "Tumu"nde gorunur.
 function kayitTarihi(t) {
@@ -2482,11 +2490,10 @@ const Dashboard = ({ instrumentsWithStatus: _tumCihazlar, calibrationRecords: _t
     // da gecerli olur (secim degistirilene kadar).
     const konum = seciliKonum || '';
     const setKonum = setSeciliKonum;
-    const konumlar = useMemo(() => [...new Set(_tumCihazlar.map(i => i.location).filter(Boolean))]
-        .sort((a, b) => a.localeCompare(b, 'tr')), [_tumCihazlar]);
+    const konumlar = useMemo(() => konumSecenekleri(_tumCihazlar), [_tumCihazlar]);
     const donem = seciliDonem || '';
     const _konumCihazlari = useMemo(
-        () => konum ? _tumCihazlar.filter(i => i.location === konum) : _tumCihazlar,
+        () => konum ? _tumCihazlar.filter(i => konumdaMi(i.location, konum)) : _tumCihazlar,
         [_tumCihazlar, konum]);
     const instrumentsWithStatus = useMemo(
         () => donem ? _konumCihazlari.filter(i => cihazDonemde(i, donem, donemKayitliCihazlar)) : _konumCihazlari,
@@ -3073,7 +3080,7 @@ const InstrumentList = ({ instruments, onAddInstrument, onEditInstrument, onDele
                     .some(v => String(v ?? '').toLowerCase().includes(searchTermLower))) &&
                 (filters.status === '' || instrument.status === filters.status) &&
                 (filters.department === '' || instrument.department === filters.department) &&
-                (filters.location === '' || instrument.location === filters.location) &&
+                (filters.location === '' || konumdaMi(instrument.location, filters.location)) &&
                 cihazDonemde(instrument, seciliDonem, donemKayitliCihazlar)
             );
         });
@@ -3185,8 +3192,7 @@ const InstrumentList = ({ instruments, onAddInstrument, onEditInstrument, onDele
     const departments = useMemo(() => [...new Set(instruments.map(i => i.department).filter((d) => Boolean(d)))], [instruments]);
     // Konum listesi sabit degil: cihazlarda gecen konumlardan turetilir,
     // yeni konum eklenince filtreye kendiliginden girer.
-    const locations = useMemo(() => [...new Set(instruments.map(i => i.location).filter(Boolean))]
-        .sort((a, b) => a.localeCompare(b, 'tr')), [instruments]);
+    const locations = useMemo(() => konumSecenekleri(instruments), [instruments]);
 
     const counts = useMemo(() => ({
         overdue: instruments.filter(i => i.status === CalibrationStatus.OVERDUE).length,
@@ -4175,7 +4181,7 @@ const AllCalibrationsView = ({ records, instruments, onEditRecord, onDeleteRecor
 
         // Kaydin konumu yok; bagli oldugu CIHAZIN konumuna gore suzulur.
         if (filters.location) {
-            filtered = filtered.filter(r => r.instrumentLocation === filters.location);
+            filtered = filtered.filter(r => konumdaMi(r.instrumentLocation, filters.location));
         }
 
         // Ortak donem (panel / Cihazlar ile ayni secim): kayit tarihine gore
@@ -4272,8 +4278,7 @@ const AllCalibrationsView = ({ records, instruments, onEditRecord, onDeleteRecor
                         className: "py-2"
                     },
                         e("option", { value: "" }, "Tüm Konumlar"),
-                        [...new Set(instruments.map(i => i.location).filter(Boolean))]
-                            .sort((a, b) => a.localeCompare(b, 'tr'))
+                        konumSecenekleri(instruments)
                             .map(l => e("option", { key: l, value: l }, l))
                     ),
                     e(FormSelect, {
@@ -4479,7 +4484,7 @@ const InstrumentForm = ({ isOpen, onClose, onSave, instrumentId, instruments, se
                     e(FormInput, { label: "Model", id: "model", name: "model", value: formData.model, onChange: handleChange }),
                     e(FormSelect, { label: "Konum", id: "location", name: "location", value: formData.location, onChange: handleChange, required: true },
                         e("option", { value: "" }, "Seçiniz..."),
-                        settings.locations.map(loc => e("option", { key: loc, value: loc }, loc))
+                        [...new Set([...settings.locations, formData.location].filter(Boolean))].map(loc => e("option", { key: loc, value: loc }, loc))
                     ),
                     e(FormSelect, { label: "Departman", id: "department", name: "department", value: formData.department, onChange: handleChange },
                         e("option", { value: "" }, "Seçiniz..."),
@@ -5011,8 +5016,7 @@ const DataImportModal = ({ isOpen, onClose, onImport, instruments }) => {
     // Konum listesi MEVCUT cihazlardan: serit metrelerin konumu kaynak
     // formda yok, bolum sutunu konum yerine kullanilinca cihazlar
     // "SETLEME PERSONELI" konumuna dusuyordu.
-    const konumlar = Array.from(new Set((instruments || [])
-        .map(i => String(i.location || '').trim()).filter(Boolean))).sort();
+    const konumlar = konumSecenekleri(instruments);
 
     // Modal her acildiginda: calisan kod guncel mi?
     useEffect(() => {
@@ -6086,7 +6090,7 @@ root.render(e(App));
   <!-- App Version Badge -->
   <div id="app-version" class="fixed bottom-3 right-3 z-40 pointer-events-none">
     <span class="inline-block px-2 py-1 text-xs rounded border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 shadow-sm">
-      Caltrack ver10.21.0
+      Caltrack ver10.22.0
     </span>
   </div>
 

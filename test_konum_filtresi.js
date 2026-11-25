@@ -19,7 +19,7 @@ const KAYIT = [
 // 1) Gosterge paneli: cihazlar VE kayitlar birlikte suzuluyor
 {
     // Kaynaktaki gercek ifadeler
-    const cihazIf = src.match(/konum \? _tumCihazlar\.filter\(i => i\.location === konum\) : _tumCihazlar/);
+    const cihazIf = src.match(/konum \? _tumCihazlar\.filter\(i => konumdaMi\(i\.location, konum\)\) : _tumCihazlar/);
     const kayitIf = src.match(/konum \? _tumKayitlar\.filter\(r => _kimlikler\.has\(r\.instrumentId\)\) : _tumKayitlar/);
     assert(cihazIf, '1a: panelde cihaz süzgeci yok');
     assert(kayitIf, '1b: panelde kayıt süzgeci yok');
@@ -52,7 +52,7 @@ const KAYIT = [
 
 // 3) Cihaz listesi: konum kosulu departman/durumla BIRLIKTE calisir
 {
-    assert(/\(filters\.location === '' \|\| instrument\.location === filters\.location\)/.test(src),
+    assert(/\(filters\.location === '' \|\| konumdaMi\(instrument\.location, filters\.location\)\)/.test(src),
         '3a: cihaz süzgecinde konum koşulu yok');
     const uygula = (f) => CIHAZ.filter(instrument =>
         (f.status === '' || instrument.status === f.status) &&
@@ -70,8 +70,7 @@ const KAYIT = [
 
 // 4) Konum listesi cihazlardan turetiliyor, bos deger atiliyor
 {
-    assert(/const locations = useMemo\(\(\) => \[\.\.\.new Set\(instruments\.map\(i => i\.location\)\.filter\(Boolean\)\)\]/
-        .test(src), '4a: konum listesi türetilmiyor');
+    assert(src.includes('const locations = useMemo(() => konumSecenekleri(instruments), [instruments])'), '4a: konum listesi türetilmiyor');
     const liste = [...new Set(CIHAZ.map(i => i.location).filter(Boolean))]
         .sort((a, b) => a.localeCompare(b, 'tr'));
     assert.deepStrictEqual(liste, ['Ankara', 'Bursa', 'Çerkezköy'], '4b: liste/sıra: ' + liste);
@@ -83,7 +82,7 @@ const KAYIT = [
 {
     assert(/instrumentLocation: instrument\.location \|\| ''/.test(src),
         '5a: kayda cihaz konumu eklenmiyor');
-    assert(/filtered = filtered\.filter\(r => r\.instrumentLocation === filters\.location\)/.test(src),
+    assert(/filtered = filtered\.filter\(r => konumdaMi\(r\.instrumentLocation, filters\.location\)\)/.test(src),
         '5b: kayıt süzgecinde konum yok');
     const detayli = KAYIT.map(r => ({ ...r,
         instrumentLocation: (CIHAZ.find(i => i.id === r.instrumentId) || { location: '' }).location || '' }));
@@ -108,3 +107,15 @@ const KAYIT = [
 }
 
 console.log('\nTüm senaryolar geçti.');
+
+// Ortak cihaz: iki tesiste kullanilan cihaz tek kayit, iki suzgecte de gorunur
+{
+    const { konumdaMi, konumSecenekleri } = new Function(
+        src.slice(src.indexOf('function konumListesi'), src.indexOf('// Panel donem suzgeci')) + ';return { konumdaMi, konumSecenekleri };')();
+    const C = [{ location: 'Hendek, Veliköy' }, { location: 'Hendek' }, { location: 'Ankara' }, { location: '' }];
+    assert.strictEqual(C.filter(i => konumdaMi(i.location, 'Hendek')).length, 2, 'ortak a');
+    assert.strictEqual(C.filter(i => konumdaMi(i.location, 'Veliköy')).length, 1, 'ortak b');
+    assert.strictEqual(C.filter(i => konumdaMi(i.location, 'Ankara')).length, 1, 'ortak c');
+    assert.deepStrictEqual(konumSecenekleri(C), ['Ankara', 'Hendek', 'Veliköy'], 'ortak d');
+    console.log('✓ ortak cihaz iki tesiste de görünüyor');
+}

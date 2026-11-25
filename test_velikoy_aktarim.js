@@ -49,7 +49,7 @@ function aktar(mevcut, kayitlar) {
         toastService: { error: t => out.hata.push(t), info: () => {}, success: t => out.ok.push(t), warning: () => {} },
         RecordType: { CALIBRATION: 'Kalibrasyon', VERIFICATION: 'Doğrulama' },
         CalibrationResult: CR, _katla, _excelGunu, _rprAnahtar: gercek('_rprAnahtar'),
-        dateKeyOf: gercek('dateKeyOf'),
+        konumListesi: new Function(src.match(/function konumListesi.*/)[0] + ';return konumListesi;')(), dateKeyOf: gercek('dateKeyOf'),
         calculateEffectiveDeviation: gercek('calculateEffectiveDeviation'),
         getCalibrationResult: gercek('getCalibrationResult'),
         generateSequentialId: gercek('generateSequentialId'),
