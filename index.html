@@ -1523,7 +1523,16 @@ return instruments.map(instrument => {
         const _validSer = (s)=>{ s=String(s==null?'':s).trim(); return (s!=='' && !['N/A','n/a','-','—','--'].includes(s)) ? s : null; };
         const _validCid = (c)=>{ c=String(c==null?'':c).trim(); return (c!=='' && !['-','—','N/A'].includes(c)) ? c : null; };
         const _grpKey = (serialV, cidV, uniq)=> _validSer(serialV) || (_validCid(cidV) ? ('CID::'+_validCid(cidV)) : ('ROW::'+uniq));
-        const existingInstrumentsBySerial = new Map(instruments.map(inst => [_grpKey(inst.serialNumber, inst.providedId || inst.id, 'EX'+inst.id), inst]));
+        // Seri no tesis icinde benzersiz: Hendek ve Veliköy şerit metreleri etiketteki numarayı (01, 02 ...) taşıyor.
+        const _ayniTesis = (inst, loc) => !loc || !inst.location || konumListesi(inst.location).map(_katla).includes(_katla(loc));
+        const mevcutBul = (anahtar, cid, loc) => {
+            const aday = instruments.filter(inst => _grpKey(inst.serialNumber, inst.providedId || inst.id, 'EX'+inst.id) === anahtar);
+            const kimlikle = cid && (yalnizSM ? instruments : aday).find(i => String(i.id) === String(cid).trim() && _ayniTesis(i, loc));
+            if (kimlikle) return kimlikle;
+            if (!loc && new Set(aday.map(i => _katla(i.location))).size > 1) return 'BELIRSIZ';
+            return aday.find(i => _ayniTesis(i, loc)) || aday[aday.length - 1];
+        };
+        let belirsizSeri = 0;
         let newInstrumentCounter = 0;
         // Anahtar CIHAZ ID: eskiden seri no idi; seri nosuz (CID::) cihazlarin
         // guncellemesi ve son kalibrasyon tarihi hic islenmiyor, ayni seri no
@@ -1599,7 +1608,13 @@ return instruments.map(instrument => {
             const realSerial = String(rowData.serialNumber || '');
             const serial = _grpKey(realSerial, providedId, 'IMP'+rowIndex); // gruplama anahtarı (seri geçersizse Cihaz ID)
             let instrumentToProcess;
-            let existingInstrument = existingInstrumentsBySerial.get(serial);
+            let existingInstrument = mevcutBul(serial, providedId, rowData.location);
+            if (existingInstrument === 'BELIRSIZ') {      // konum yazılmamış, aynı seri no birden çok tesiste
+                console.warn('[ice aktarma] satir ' + (rowIndex + 2) + ' atlandi: seri ' + serial + ' birden cok tesiste, konum yok');
+                belirsizSeri++;
+                return;
+            }
+            const yeniAnahtar = serial + '|' + _katla(rowData.location || '');
             // Ayni seri no BASKA tesisteki cihazda: o cihaz guncellenmez,
             // bu satir kendi tesisinde ayri cihaz olur (Veliköy listesi
             // Ankara/Çerkezköy cihazini ezmesin).
@@ -1657,17 +1672,17 @@ return instruments.map(instrument => {
                 instrumentToProcess = { ...existingInstrument, ...instrumentDataFromRow };
                 updatedInstrumentsMap.set(existingInstrument.id, instrumentToProcess);
             } else {
-                instrumentToProcess = newInstrumentsFromExcel.get(serial);
+                instrumentToProcess = newInstrumentsFromExcel.get(yeniAnahtar);
                 if (!instrumentToProcess) {
                     instrumentToProcess = {
-                        id: `new_${serial}_${newInstrumentCounter++}`, // Temporary ID for linking records
+                        id: `new_${yeniAnahtar}_${newInstrumentCounter++}`, // Temporary ID for linking records
                         providedId: providedId ? String(providedId) : null,
                         name: '', serialNumber: realSerial, model: '', location: '', department: '',
                         calibrationInterval: 12, permissibleDeviation: 0, unit: '', procedure: '',
                         lastCalibrationDate: '', measurementRange: '', resolution: '', image: null,
                         ...instrumentDataFromRow,
                     };
-                    newInstrumentsFromExcel.set(serial, instrumentToProcess);
+                    newInstrumentsFromExcel.set(yeniAnahtar, instrumentToProcess);
                 }
             }
 
@@ -1707,7 +1722,7 @@ return instruments.map(instrument => {
                 // iz seri numarasi uzerinden kurulur.
                 const izAnahtari = existingInstrument
                     ? kayitIzi(instrumentToProcess.id, newRecord.date, newRecord.recordType)
-                    : kayitIzi('YENI::' + serial, newRecord.date, newRecord.recordType);
+                    : kayitIzi('YENI::' + yeniAnahtar, newRecord.date, newRecord.recordType);
                 if (mevcutIzler.has(izAnahtari)) {
                     atlananKayit++;
                 } else {
@@ -1717,6 +1732,7 @@ return instruments.map(instrument => {
             }
         });
         
+        if (belirsizSeri) toastService.warning(belirsizSeri + ' satır atlandı: seri no birden çok tesiste var, satırda konum yazılmamış.');
         if (updatedInstrumentsMap.size === 0 && newInstrumentsFromExcel.size === 0 && newRecords.length === 0) {
             // Sadece "bulunamadi" demek teshis birakmiyordu: kac satir okundu,
             // hangi basliklar taninmadi -> hepsi yazilsin.
@@ -3194,10 +3210,16 @@ const InstrumentList = ({ instruments, onAddInstrument, onEditInstrument, onDele
     // yeni konum eklenince filtreye kendiliginden girer.
     const locations = useMemo(() => konumSecenekleri(instruments), [instruments]);
 
-    const counts = useMemo(() => ({
-        overdue: instruments.filter(i => i.status === CalibrationStatus.OVERDUE).length,
-        dueSoon: instruments.filter(i => i.status === CalibrationStatus.DUE_SOON).length,
-    }), [instruments]);
+    // Hizli filtre sayaclari secili konum ve doneme gore (listenin kullandigi kosullarla)
+    const counts = useMemo(() => {
+        const kapsam = instruments.filter(i => (filters.location === '' || konumdaMi(i.location, filters.location))
+            && cihazDonemde(i, seciliDonem, donemKayitliCihazlar));
+        return {
+            total: kapsam.length,
+            overdue: kapsam.filter(i => i.status === CalibrationStatus.OVERDUE).length,
+            dueSoon: kapsam.filter(i => i.status === CalibrationStatus.DUE_SOON).length,
+        };
+    }, [instruments, filters.location, seciliDonem, donemKayitliCihazlar]);
 
     return (
         e("div", {},
@@ -3230,7 +3252,7 @@ const InstrumentList = ({ instruments, onAddInstrument, onEditInstrument, onDele
             e("div", { className: "bg-white dark:bg-slate-800 p-4 rounded-lg shadow-md mb-6 space-y-4" },
                  e("div", { className: "flex items-center gap-3 flex-wrap border-b dark:border-slate-700 pb-4" },
                     e("span", { className: "text-sm font-medium text-slate-500 dark:text-slate-400" }, "Hızlı Filtrele:"),
-                    e(QuickFilterButton, { label: "Tümü", count: instruments.length, filterStatus: "", activeStatus: filters.status, setFilter: status => setFilters(prev => ({ ...prev, status })) }),
+                    e(QuickFilterButton, { label: "Tümü", count: counts.total, filterStatus: "", activeStatus: filters.status, setFilter: status => setFilters(prev => ({ ...prev, status })) }),
                     e(QuickFilterButton, { label: "Gecikmiş", count: counts.overdue, filterStatus: CalibrationStatus.OVERDUE, activeStatus: filters.status, setFilter: status => setFilters(prev => ({ ...prev, status })), color: "bg-red-100 text-red-800" }),
                     e(QuickFilterButton, { label: "Yaklaşıyor", count: counts.dueSoon, filterStatus: CalibrationStatus.DUE_SOON, activeStatus: filters.status, setFilter: status => setFilters(prev => ({ ...prev, status })), color: "bg-yellow-100 text-yellow-800" })
                 ),
@@ -3913,7 +3935,7 @@ function raporEslestir(dosyalar, kayitlar, cihazlar, uzerineYaz) {
                     (adAnahtar && kimlik.no != null
                         && _katla(c.name).indexOf(adAnahtar) >= 0
                         && _seriSayi(c.serialNumber) === kimlik.no)
-                    || _seriAnahtar(c.serialNumber) === sk);
+                    || _seriAnahtar(c.serialNumber) === sk || _seriAnahtar(c.id) === sk);
                 if (!bulunan.length) { sonuc.eslesmeyen.push(sayfa); return; }
                 let kayitVar = false;
                 bulunan.forEach(cihaz => {
@@ -5154,7 +5176,7 @@ const DataImportModal = ({ isOpen, onClose, onImport, instruments }) => {
                 const id = onEk + String(s.no).padStart(3, '0');
                 const tarih = gg(s.dogrulama);
                 rows.push([
-                    id, 'Şerit Metre', id, '', konum, s.bolum,
+                    id, 'Şerit Metre', baskaTesiste ? String(s.no).padStart(2, '0') : id, '', konum, s.bolum,   // seri no = etiketteki numara
                     s.ay || 6, 1, 'mm', smAralik.trim() || '0-3000 mm',
                     '1 mm',
                     'FR72 Şerit Metre Zimmet Takip Listesi',
@@ -5891,8 +5913,8 @@ const CalendarModal = ({ isOpen, onNavigate, onClose, instruments, onOpenInstrum
         try {
             // try to open exact instrument detail via prop
             const target = (instruments || []).find(i => 
-                (instrument.id && i.id === instrument.id) || 
-                (instrument.serialNumber && i.serialNumber === instrument.serialNumber)
+                instrument.id ? i.id === instrument.id
+                    : (instrument.serialNumber && i.serialNumber === instrument.serialNumber)
             );
             if (typeof onOpenInstrument === 'function' && target) {
                 onOpenInstrument(target.id);
@@ -6090,7 +6112,7 @@ root.render(e(App));
   <!-- App Version Badge -->
   <div id="app-version" class="fixed bottom-3 right-3 z-40 pointer-events-none">
     <span class="inline-block px-2 py-1 text-xs rounded border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 shadow-sm">
-      Caltrack ver10.22.2
+      Caltrack ver10.22.3
     </span>
   </div>
 

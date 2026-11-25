@@ -29,4 +29,14 @@ assert.strictEqual((src.match(/\.\.\.donemOrtak/g) || []).length, 3, 'panel, Cih
 assert(src.includes("new Set([String(y), String(y + 1)])"), 'gelecek yıl seçenekte');
 assert(src.includes('cihazDonemde(instrument, seciliDonem, donemKayitliCihazlar)') && src.includes('kayitDonemde(r.date, seciliDonem)'), 'Cihazlar ve Tüm Kayıtlar süzülür');
 assert((src.match(/donemSecenekleri\(donemYillari\)/g) || []).length === 3, 'üç ekranda seçici');
+// Hızlı filtre sayaçları: konum + dönem kapsamı (kaynaktaki gerçek hesapla)
+const sg = src.match(/const counts = useMemo\((\(\) => \{[\s\S]*?\n    \}), \[instruments, filters\.location, seciliDonem/);
+assert(sg && src.includes('label: "Tümü", count: counts.total'), 'sayaç kapsamı');
+const say = (loc, donem) => new Function('instruments', 'filters', 'seciliDonem', 'donemKayitliCihazlar', 'konumdaMi', 'cihazDonemde', 'CalibrationStatus', 'return (' + sg[1] + ')()')(
+    [{ id: 'A1', location: 'Hendek', status: 'Tamam', nextCalibrationDate: '2027-03-01' }, { id: 'B1', location: 'Veliköy', status: 'Gecikmiş', nextCalibrationDate: '2024-01-01' },
+     { id: 'B2', location: 'Veliköy', status: 'Yaklaşıyor', nextCalibrationDate: '2026-12-17' }, { id: 'B3', location: 'Veliköy', status: 'Tamam', nextCalibrationDate: '2027-07-14' }],
+    { location: loc }, donem, kayitli, (k, l) => k === l, F.cihazDonemde, { OVERDUE: 'Gecikmiş', DUE_SOON: 'Yaklaşıyor' });
+assert.deepStrictEqual(say('', ''), { total: 4, overdue: 1, dueSoon: 1 });
+assert.deepStrictEqual(say('Hendek', ''), { total: 1, overdue: 0, dueSoon: 0 });
+assert.deepStrictEqual(say('Veliköy', '2026'), { total: 2, overdue: 1, dueSoon: 1 }, '2027 planlı cihaz 2026 sayacına girmez');
 console.log('✔ dönem süzgeci: Tümü, yıl, son 12 ay, tarih biçimleri, konumla birlikte');
