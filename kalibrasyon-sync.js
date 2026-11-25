@@ -42,9 +42,40 @@
   function applyRemote(data){ if(!data) return false; _applying=true; var ch=false;
     try{ Object.keys(data).forEach(function(k){ if(isSynced(k) && oku(k)!==data[k]){ yaz(k, data[k]); ch=true; } }); }
     finally{ _applying=false; } return ch; }
+  // Uygulamanın açılışta kendi yaptığı düzeltme mi? (yeni konum/departman eklemek, doğrulamaya referans cihaz atamak)
+  // 25.11.2026: bulutta konumSurum 2 kalınca her açılışta ayar değişiyor, senkron "veri farklı" deyip 5 gün boyunca
+  // hiç yazmadan yerel modda kaldı. Yalnız bu bilinen alanlar değişmişse veri aynı sayılır; cihaz ya da kayıt farkı sayılmaz.
+  function sade(k,v){
+    var a=JSON.parse(v);
+    if(k==='settings'){ a=Object.assign({},a); ['locations','departments','konumSurum'].forEach(function(x){ delete a[x]; }); }
+    if(k==='calibrationRecords') a=a.map(function(r){ if(!r||typeof r!=='object') return r; r=Object.assign({},r); delete r.referenceInstrumentId; return r; });
+    return JSON.stringify(a);
+  }
+  function kapsar(buyuk,kucuk){ buyuk=buyuk||[]; return (kucuk||[]).every(function(x){ return buyuk.indexOf(x)>=0; }); }
+  function yalnizGoc(remote){
+    try{
+      return KEYS.every(function(k){
+        var y=oku(k), r=remote[k];
+        if(r===undefined || y===r) return true;
+        if(y===null || sade(k,y)!==sade(k,r)) return false;
+        if(k==='settings'){ var A=JSON.parse(y), B=JSON.parse(r);
+          return kapsar(A.locations,B.locations) && kapsar(A.departments,B.departments) && (A.konumSurum||0)>=(B.konumSurum||0); }
+        if(k==='calibrationRecords'){ var Y=JSON.parse(y); return JSON.parse(r).every(function(x,i){ return !x || !x.referenceInstrumentId || x.referenceInstrumentId===Y[i].referenceInstrumentId; }); }
+        return true;
+      });
+    }catch(e){ return false; }
+  }
+  // Kayıt buluta gitmiyorsa SESSİZ kalma: ekranın altında kalıcı uyarı
+  function uyar(m){ try{ var d=document.getElementById('kalibSyncUyari');
+    if(!m){ if(d) d.remove(); return; }
+    if(!d){ d=document.createElement('div'); d.id='kalibSyncUyari';
+      d.style.cssText='position:fixed;left:0;right:0;bottom:0;z-index:99999;background:#b91c1c;color:#fff;padding:10px 16px;font:600 14px sans-serif;text-align:center';
+      (document.body||document.documentElement).appendChild(d); }
+    d.textContent=m; }catch(e){} }
+  var UYARI='Değişiklikler buluta KAYDEDİLMİYOR. Sayfayı yenileyin; uyarı sürerse ERP oturumunuzu kapatıp yeniden açın.';
   function pushNow(){ if(_applying||!_uid||!_hazir) return;
     sb.from('supplier_sync').upsert({ id:ROW_ID, data:snapshot(), updated_at:new Date().toISOString(), updated_by:_uid })
-      .then(function(r){ if(r.error) console.warn('[kalib-sync] push', r.error.message); else console.log('[kalib-sync] kaydedildi'); }); }
+      .then(function(r){ if(r.error){ console.warn('[kalib-sync] push', r.error.message); uyar(UYARI); } else { console.log('[kalib-sync] kaydedildi'); uyar(''); } }, function(e){ console.warn('[kalib-sync] push', e); uyar(UYARI); }); }
   function schedulePush(){ if(_applying) return; _lastEdit=Date.now(); clearTimeout(_pushTimer); _pushTimer=setTimeout(pushNow, 1500); }
 
   function subscribe(){
@@ -68,18 +99,20 @@
         await new Promise(function(res){ setTimeout(res, 1500*(dene+1)); });
         r=await sb.from('supplier_sync').select('data').eq('id',ROW_ID).maybeSingle();
       }
-      if(r.error){ console.warn('[kalib-sync] bulut okunamadı, yerel mod (buluta yazılmaz):', r.error.message); return; }
+      if(r.error){ console.warn('[kalib-sync] bulut okunamadı, yerel mod (buluta yazılmaz):', r.error.message); uyar(UYARI); return; }
       clearTimeout(_pushTimer);             // okuma bitene kadar biriken (eski) push gönderilmez
       var remote=(r.data && r.data.data) ? r.data.data : null;
       if(remote && Object.keys(remote).length){
-        if(applyRemote(remote)){            // yerelden farklıysa uygula + bir kez yenile (React taze okusun)
+        var goc=KEYS.some(function(k){ return remote[k]!==undefined && oku(k)!==remote[k]; }) && yalnizGoc(remote);
+        if(!goc && applyRemote(remote)){            // yerelden farklıysa uygula + bir kez yenile (React taze okusun)
           if(!sessionStorage.getItem('_kalibSyncReloaded')){ sessionStorage.setItem('_kalibSyncReloaded','1'); location.reload(); return; }
-          console.warn('[kalib-sync] yenilemeye rağmen veri farklı — yerel mod (buluta yazılmaz)'); return;
+          console.warn('[kalib-sync] yenilemeye rağmen veri farklı — yerel mod (buluta yazılmaz)'); sessionStorage.removeItem('_kalibSyncReloaded'); uyar(UYARI); return;
         }
         _uid=uid; _hazir=true;
+        if(goc) pushNow();                  // açılış düzeltmesi buluta da işlenir, sonraki açılışta fark kalmaz
       } else if(r.data===null){
         _uid=uid; _hazir=true; pushNow();   // satır gerçekten yok → mevcut yerel veriyi ilk kez yükle (migration)
-      } else { console.warn('[kalib-sync] bulut satırı boş veri taşıyor — yerel mod'); return; }
+      } else { console.warn('[kalib-sync] bulut satırı boş veri taşıyor — yerel mod'); uyar(UYARI); return; }
       sessionStorage.removeItem('_kalibSyncReloaded');
       subscribe();
       console.log('[kalib-sync] Kalibrasyon canlı senkron aktif.');
